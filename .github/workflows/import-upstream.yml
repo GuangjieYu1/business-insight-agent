@@ -2,12 +2,9 @@ name: Import Data Formulator upstream and bootstrap
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/5 * * * *'
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   import-upstream:
@@ -18,24 +15,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Stop when bootstrap is already present
-        id: guard
-        shell: bash
-        run: |
-          if git ls-remote --exit-code --heads origin develop >/dev/null 2>&1 \
-             && git show origin/develop:py-src/data_formulator/product.py >/dev/null 2>&1; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Preserve bootstrap patch
-        if: steps.guard.outputs.skip != 'true'
-        shell: bash
-        run: cp bootstrap/bootstrap-business-insight.patch.gz /tmp/bootstrap-business-insight.patch.gz
-
       - name: Import Microsoft Data Formulator and apply Business Insight bootstrap
-        if: steps.guard.outputs.skip != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -50,29 +30,8 @@ jobs:
           git push origin upstream-base --force
 
           git checkout -B develop upstream/main
-          gzip -dc /tmp/bootstrap-business-insight.patch.gz > /tmp/bootstrap-business-insight.patch
+          gzip -dc bootstrap/bootstrap-business-insight.patch.gz > /tmp/bootstrap-business-insight.patch
           git apply --3way --whitespace=fix /tmp/bootstrap-business-insight.patch
           git add -A
           git commit -m "chore: bootstrap business insight foundation"
           git push origin develop --force-with-lease
-
-      - name: Remove one-time schedule after success
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-          git checkout main
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('.github/workflows/import-upstream.yml')
-          text = path.read_text()
-          text = text.replace("  schedule:\n    - cron: '*/5 * * * *'\n", "")
-          path.write_text(text)
-          PY
-          if ! git diff --quiet -- .github/workflows/import-upstream.yml; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .github/workflows/import-upstream.yml
-            git commit -m "ci: disable completed bootstrap schedule"
-            git push origin main
-          fi
