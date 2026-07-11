@@ -5,9 +5,13 @@ name: build
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+      - develop
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+      - develop
 
 # Global permissions required for OIDC authentication
 permissions:

@@ -139,6 +139,15 @@ class LocalInsightStore:
     def read_parquet(self, relative_path: str) -> pd.DataFrame:
         return pd.read_parquet(self._resolve(relative_path))
 
+    def file_size(self, relative_path: str) -> int:
+        return int(self._resolve(relative_path).stat().st_size)
+
+    def parquet_shape(self, relative_path: str) -> tuple[int, int]:
+        import pyarrow.parquet as pq
+
+        metadata = pq.ParquetFile(self._resolve(relative_path)).metadata
+        return int(metadata.num_rows), int(metadata.num_columns)
+
     def file_sha256(self, relative_path: str) -> str:
         target = self._resolve(relative_path)
         digest = hashlib.sha256()

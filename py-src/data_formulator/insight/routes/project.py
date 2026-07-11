@@ -21,6 +21,12 @@ from data_formulator.insight.registry import (
     read_project,
     register_dataset_version_zero,
 )
+from data_formulator.insight.profiling import (
+    InsightProfileError,
+    InsightProfileNotFoundError,
+    generate_dataset_profile,
+    read_dataset_profile,
+)
 from data_formulator.insight.storage import LocalInsightStore
 from data_formulator.workspace_factory import get_workspace
 
@@ -164,3 +170,36 @@ def get_dataset_route(dataset_id: str):
             "originalVersion": version.model_dump(mode="json") if version else None,
         }
     )
+
+
+@insight_project_bp.route("/datasets/<dataset_id>/profile", methods=["POST"])
+def generate_dataset_profile_route(dataset_id: str):
+    _, workspace = _workspace_context()
+    try:
+        profile = generate_dataset_profile(
+            _store_for(workspace),
+            workspace_id=_workspace_id(workspace),
+            dataset_id=dataset_id,
+        )
+    except InsightProfileNotFoundError as exc:
+        raise AppError(ErrorCode.TABLE_NOT_FOUND, str(exc)) from exc
+    except InsightProfileError as exc:
+        raise AppError(ErrorCode.INVALID_REQUEST, str(exc)) from exc
+    return json_ok({"profile": profile.model_dump(mode="json")})
+
+
+@insight_project_bp.route("/datasets/<dataset_id>/profiles/version_000", methods=["GET"])
+def get_dataset_profile_route(dataset_id: str):
+    _, workspace = _workspace_context()
+    workspace_id = _workspace_id(workspace)
+    try:
+        profile = read_dataset_profile(_store_for(workspace), dataset_id=dataset_id)
+    except InsightProfileNotFoundError as exc:
+        raise AppError(ErrorCode.TABLE_NOT_FOUND, str(exc)) from exc
+    except InsightProfileError as exc:
+        raise AppError(ErrorCode.INVALID_REQUEST, str(exc)) from exc
+    if profile is None:
+        raise AppError(ErrorCode.TABLE_NOT_FOUND, f"Dataset profile not found: {dataset_id}/version_000")
+    if profile.workspace_id != workspace_id:
+        raise AppError(ErrorCode.INVALID_REQUEST, "Profile workspace_id does not match active workspace")
+    return json_ok({"profile": profile.model_dump(mode="json")})

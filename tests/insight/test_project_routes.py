@@ -144,3 +144,68 @@ def test_dataset_route_never_overwrites_version_zero(tmp_path: Path, monkeypatch
     store = LocalInsightStore(workspace.confined_root.root)
     loaded = store.read_parquet("datasets/dataset_sales/versions/version_000.parquet")
     assert loaded["sales"].tolist() == [10]
+
+
+def test_dataset_profile_routes_generate_and_read_version_zero_profile(tmp_path: Path, monkeypatch):
+    workspace = Workspace("local:test", workspace_path=tmp_path / "workspace")
+    workspace.write_parquet(
+        pd.DataFrame(
+            {
+                "region": ["east", "east", "west"],
+                "sales": ["10", "10", "bad"],
+            }
+        ),
+        "sales_raw",
+    )
+    app = _app_with_workspace(monkeypatch, workspace)
+    client = app.test_client()
+
+    register_response = client.post(
+        "/api/insight/datasets",
+        json={"tableName": "sales_raw", "datasetId": "dataset_sales"},
+        headers=_workspace_headers(workspace),
+    )
+    assert register_response.get_json()["status"] == "success"
+
+    profile_response = client.post(
+        "/api/insight/datasets/dataset_sales/profile",
+        headers=_workspace_headers(workspace),
+    )
+
+    assert profile_response.status_code == 200
+    profile = profile_response.get_json()["data"]["profile"]
+    assert profile["dataset_id"] == "dataset_sales"
+    assert profile["version_id"] == "version_000"
+    assert profile["profile_ref"] == "datasets/dataset_sales/profiles/version_000.json"
+    assert {issue["issue_type"] for issue in profile["quality_issues"]} >= {
+        "duplicate_rows",
+        "numeric_parse_conflict",
+    }
+
+    stored_response = client.get(
+        "/api/insight/datasets/dataset_sales/profiles/version_000",
+        headers=_workspace_headers(workspace),
+    )
+    assert stored_response.get_json()["data"]["profile"]["id"] == profile["id"]
+
+
+def test_dataset_profile_get_requires_existing_profile(tmp_path: Path, monkeypatch):
+    workspace = Workspace("local:test", workspace_path=tmp_path / "workspace")
+    workspace.write_parquet(pd.DataFrame({"sales": [10]}), "sales_raw")
+    app = _app_with_workspace(monkeypatch, workspace)
+    client = app.test_client()
+
+    client.post(
+        "/api/insight/datasets",
+        json={"tableName": "sales_raw", "datasetId": "dataset_sales"},
+        headers=_workspace_headers(workspace),
+    )
+    response = client.get(
+        "/api/insight/datasets/dataset_sales/profiles/version_000",
+        headers=_workspace_headers(workspace),
+    )
+
+    payload = response.get_json()
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "TABLE_NOT_FOUND"
+    assert "Dataset profile not found" in payload["error"]["message"]
