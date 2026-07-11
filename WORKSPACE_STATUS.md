@@ -13,19 +13,25 @@
 - Added architecture and upstream strategy documents.
 - Added tests for branding, contracts, storage, health routing, and frontend brand fallback.
 - Created the private GitHub repository `GuangjieYu1/business-insight-agent`.
+- Merged PR #3 into `main`.
+- Fast-forwarded local and remote `develop` and `feature/dataset-profiling` from `main`.
+- Added Phase 1 project registration, dataset registration, and immutable `version_000` snapshots.
+- Started Dataset Profiling with `DatasetProfile`, `ColumnProfile`, read-only profile generation, profile persistence, and profile API routes.
 
 ## Current limitations
 
 - Full dependency installation and baseline test results are recorded in `docs/testing/BASELINE_TEST_REPORT.md`.
 - `upstream/dev` is ahead of the stable `upstream/main` baseline and has not been merged in Phase 0.
-- The `business_insight` product mode is a branding and extension hook only; the full analysis workflow starts in Phase 1.
+- Dataset Profiling currently supports only immutable `version_000`.
+- Profile thresholds are fixed in code for the first pass: near-constant columns at 95% dominant value and high-missing columns at 50% missing values.
+- Profile generation is read-only and deterministic, but UI integration and cleaning recommendations are not implemented yet.
 
 ## Next implementation target
 
-Phase 1 continuation:
+Phase 1 Dataset Profiling continuation:
 
-1. Project repository and service layer.
-2. Dataset registration contract.
-3. Immutable Dataset Version 0 creation.
-4. `/api/insight/project` and `/api/insight/datasets` routes.
+1. Harden profile issue evidence and severity calibration.
+2. Add frontend API client and profile display surface.
+3. Feed profile output into cleaning proposal generation.
+4. Add configurable profile thresholds after the first deterministic pass stabilizes.
 5. Keep all new persistent business-analysis data under workspace-scoped Insight storage.

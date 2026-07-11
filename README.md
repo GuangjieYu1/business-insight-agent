@@ -6,7 +6,16 @@ This repository keeps the upstream `data_formulator` Python package, existing AP
 
 This project is not an official Microsoft product and is not affiliated with or endorsed by Microsoft. The upstream project is <https://github.com/microsoft/data-formulator>.
 
-Current stage: Phase 0 baseline. Implemented items include configurable `data_formulator` / `business_insight` product mode, workspace-scoped Insight domain contracts, local Insight storage, an Insight health endpoint, upstream strategy documentation, and baseline tests.
+Current stage: Phase 1 Dataset Profiling. The project now has the Phase 0 product baseline, workspace-scoped Insight domain contracts, local Insight storage, project registration, dataset registration, immutable Dataset Version 0 snapshots, and the first read-only dataset profiling APIs.
+
+Dataset profiling currently reads `datasets/<dataset_id>/versions/version_000.parquet`, generates `DatasetProfile` and `ColumnProfile` metadata, and saves it at `datasets/<dataset_id>/profiles/version_000.json`. The first quality checks are `empty_column`, `constant_column`, `near_constant_column`, `high_missing_column`, `duplicate_rows`, `mixed_type_column`, `numeric_parse_conflict`, and `datetime_parse_conflict`.
+
+Focused Business Insight checks:
+
+```bash
+uv run pytest tests/insight -q
+yarn vitest run tests/frontend/productConfig.test.ts
+```
 
 Quick start for the Business Insight mode:
 
@@ -19,9 +28,20 @@ yarn start
 
 For a production bundle, run `yarn build` and then start the backend with `uv run data_formulator --product-mode business_insight`.
 
-Optional integrations planned for later phases include RAGFlow, the Time-Series Forecast Lab adapter, and Hermes MCP. They are not required for Phase 0.
+Optional integrations planned for later phases include RAGFlow, the Time-Series Forecast Lab adapter, and Hermes MCP. They are not required for the current Dataset Profiling work.
 
 Data safety boundaries: uploaded files stay inside the active Data Formulator workspace; Business Insight data is stored under workspace-scoped Insight storage; canonical dataset changes must go through deterministic operations in later phases; API keys must not be written into workspaces.
+
+Initial Business Insight APIs:
+
+- `GET /api/insight/health`
+- `POST /api/insight/project`
+- `GET /api/insight/project`
+- `POST /api/insight/datasets`
+- `GET /api/insight/datasets`
+- `GET /api/insight/datasets/<dataset_id>`
+- `POST /api/insight/datasets/<dataset_id>/profile`
+- `GET /api/insight/datasets/<dataset_id>/profiles/version_000`
 
 ## Upstream Data Formulator README
 

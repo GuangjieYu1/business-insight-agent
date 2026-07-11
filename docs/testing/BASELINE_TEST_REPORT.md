@@ -4,12 +4,15 @@ Baseline date: 2026-07-12
 
 ## Environment
 
-- Branch: `develop`
+- Branch: `feature/dataset-profiling`
 - Upstream baseline: `upstream/main` at `00d0f5e1655e2a5bb02fda289f73960bbac62027`
+- Business Insight branch sync: `main` fast-forwarded into local and remote `develop` and `feature/dataset-profiling`
 - Python: 3.11.15
 - Node: 24.16.0
 - Package manager notes:
   - `uv sync` could not run because `uv` is not installed in this environment.
+  - `uv run pytest tests/insight -q` could not run locally for the same reason; `.venv/bin/python -m pytest tests/insight -q` was used as the local backend equivalent.
+  - `yarn` is not directly on `PATH`; `corepack yarn ...` was used for local frontend verification.
   - Backend dependencies were installed with a local `.venv` fallback: `python -m venv .venv && .venv/bin/python -m pip install -e . pytest`.
   - `yarn` was provided through Corepack as Yarn 1.22.22.
   - `corepack yarn install --frozen-lockfile` failed because the lockfile needs an update.
@@ -45,12 +48,29 @@ Failures and errors:
 Command:
 
 ```bash
+uv run pytest tests/insight -q
+```
+
+Result:
+
+- Not run locally because `uv` is not installed.
+
+Local equivalent command:
+
+```bash
 .venv/bin/python -m pytest tests/insight -q
 ```
 
 Result:
 
-- 9 passed
+- 24 passed
+
+Coverage notes:
+
+- Product-mode and health route checks.
+- Phase 1 project, dataset registration, immutable `version_000`, rollback, and workspace header hardening checks.
+- Dataset Profiling domain model, profile generation, persisted `datasets/<dataset_id>/profiles/version_000.json`, profile POST/GET route checks.
+- First read-only quality checks: `empty_column`, `constant_column`, `near_constant_column`, `high_missing_column`, `duplicate_rows`, `mixed_type_column`, `numeric_parse_conflict`, `datetime_parse_conflict`.
 
 ## Frontend Baseline
 
@@ -92,6 +112,16 @@ Failing areas:
 Command:
 
 ```bash
+yarn vitest run tests/frontend/productConfig.test.ts
+```
+
+Result:
+
+- Not run locally through the bare `yarn` executable because `yarn` is not on `PATH`.
+
+Local equivalent command:
+
+```bash
 corepack yarn vitest run tests/frontend/productConfig.test.ts
 ```
 
@@ -119,4 +149,4 @@ Result:
 
 ## Conclusion
 
-The Phase 0 Business Insight additions pass their focused backend and frontend tests, and the production frontend build succeeds. The full upstream pytest and Vitest baselines are not clean in this host environment; failures are recorded above and should be triaged separately from Phase 0 product-mode and Insight foundation work.
+The focused Business Insight backend and frontend tests pass for the Phase 1 Dataset Profiling start. The full upstream pytest and Vitest baselines are not clean in this host environment; failures are recorded above and should be triaged separately from Business Insight product-mode, dataset registration, and profiling work.
