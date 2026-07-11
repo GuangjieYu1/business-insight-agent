@@ -18,6 +18,13 @@ import { Type } from '../data/types';
 import { createTableFromFromObjectArray, inferTypeFromValueArray, refineTemporalType } from '../data/utils';
 import { Identity, IdentityType, getBrowserId } from './identity';
 import { REHYDRATE } from 'redux-persist';
+import {
+    DEFAULT_BRAND_DESCRIPTION,
+    DEFAULT_BRAND_NAME,
+    DEFAULT_BRAND_SHORT_NAME,
+    DEFAULT_PRODUCT_MODE,
+    ProductMode,
+} from './productConfig';
 
 enableMapSet();
 
@@ -61,6 +68,10 @@ export interface ServerConfig {
     PROJECT_FRONT_PAGE: boolean;
     MAX_DISPLAY_ROWS: number;
     AVAILABLE_LANGUAGES: string[];
+    APP_PRODUCT_MODE: ProductMode;
+    APP_BRAND_NAME: string;
+    APP_BRAND_SHORT_NAME: string;
+    APP_BRAND_DESCRIPTION: string;
     DATA_FORMULATOR_HOME?: string;
     DEV_MODE: boolean;
     WORKSPACE_BACKEND: 'local' | 'azure_blob' | 'ephemeral';
@@ -278,6 +289,10 @@ const initialState: DataFormulatorState = {
         PROJECT_FRONT_PAGE: false,
         MAX_DISPLAY_ROWS: 10000,
         AVAILABLE_LANGUAGES: ['en', 'zh'],
+        APP_PRODUCT_MODE: DEFAULT_PRODUCT_MODE,
+        APP_BRAND_NAME: DEFAULT_BRAND_NAME,
+        APP_BRAND_SHORT_NAME: DEFAULT_BRAND_SHORT_NAME,
+        APP_BRAND_DESCRIPTION: DEFAULT_BRAND_DESCRIPTION,
         DEV_MODE: false,
         WORKSPACE_BACKEND: 'local',
     },
@@ -867,7 +882,7 @@ export const dataFormulatorSlice = createSlice({
             };
         },
         setServerConfig: (state, action: PayloadAction<ServerConfig>) => {
-            state.serverConfig = action.payload;
+            state.serverConfig = { ...initialState.serverConfig, ...action.payload };
             // Auto-adjust frontendRowLimit for ephemeral mode if still at default
             if (action.payload.WORKSPACE_BACKEND === 'ephemeral' && state.config.frontendRowLimit === DEFAULT_ROW_LIMIT) {
                 state.config.frontendRowLimit = DEFAULT_ROW_LIMIT_EPHEMERAL;

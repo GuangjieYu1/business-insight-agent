@@ -9,11 +9,13 @@
 5. Preserve the upstream MIT license and copyright notices.
 6. Keep branding configurable through product mode rather than global source renaming.
 
-## Remotes for the full fork
+## Remotes
+
+The working repository is configured as:
 
 ```bash
-git remote add origin git@github.com:GuangjieYu1/business-insight-agent.git
-git remote add upstream https://github.com/microsoft/data-formulator.git
+origin   https://github.com/GuangjieYu1/business-insight-agent.git
+upstream https://github.com/microsoft/data-formulator.git
 ```
 
 ## Sync workflow
@@ -25,3 +27,16 @@ git merge upstream/main
 ```
 
 Resolve conflicts in adapters and product-specific entry points rather than modifying upstream internals unnecessarily.
+
+## Project-Owned Extension Areas
+
+- `py-src/data_formulator/insight/`
+- `py-src/data_formulator/product.py`
+- `docs/architecture/*` Business Insight documents
+- `docs/testing/*` Business Insight baseline and acceptance documents
+- `tests/insight/`
+- Frontend product-mode helpers and future `src/insight/` modules
+
+## Avoided Conflict Areas
+
+The first phases should avoid broad edits to `data_formulator` package names, `/api/sessions`, `dfSlice.tsx`, and the existing Data Formulator workspace file contract unless a small compatibility hook is required.

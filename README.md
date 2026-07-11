@@ -1,3 +1,30 @@
+# Business Insight Agent
+
+Business Insight Agent is an experimental business-data analysis platform built as an MIT-licensed fork of Microsoft Data Formulator.
+
+This repository keeps the upstream `data_formulator` Python package, existing API prefixes, and core Redux store intact during the early phases so upstream changes remain mergeable. Business Insight functionality is added through product-mode branding, `data_formulator.insight`, `/api/insight`, new documentation, and focused tests.
+
+This project is not an official Microsoft product and is not affiliated with or endorsed by Microsoft. The upstream project is <https://github.com/microsoft/data-formulator>.
+
+Current stage: Phase 0 baseline. Implemented items include configurable `data_formulator` / `business_insight` product mode, workspace-scoped Insight domain contracts, local Insight storage, an Insight health endpoint, upstream strategy documentation, and baseline tests.
+
+Quick start for the Business Insight mode:
+
+```bash
+uv sync
+yarn
+uv run data_formulator --dev --product-mode business_insight
+yarn start
+```
+
+For a production bundle, run `yarn build` and then start the backend with `uv run data_formulator --product-mode business_insight`.
+
+Optional integrations planned for later phases include RAGFlow, the Time-Series Forecast Lab adapter, and Hermes MCP. They are not required for Phase 0.
+
+Data safety boundaries: uploaded files stay inside the active Data Formulator workspace; Business Insight data is stored under workspace-scoped Insight storage; canonical dataset changes must go through deterministic operations in later phases; API keys must not be written into workspaces.
+
+## Upstream Data Formulator README
+
 <h1 align="center">
   <img src="./public/favicon.ico" alt="Data Formulator icon" width="28">&nbsp;
   Data Formulator: AI-powered Data Visualization

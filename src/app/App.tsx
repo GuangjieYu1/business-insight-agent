@@ -110,6 +110,7 @@ import YouTubeIcon from '@mui/icons-material/YouTube';
 import PublicIcon from '@mui/icons-material/Public';
 import { useTranslation } from 'react-i18next';
 import { syncVegaLocale } from '../lib/vega-locale';
+import { DEFAULT_BRAND_NAME, getBrandName } from './productConfig';
 
 // Discord Icon Component
 const DiscordIcon: FC<{ sx?: any }> = ({ sx }) => (
@@ -181,7 +182,7 @@ declare module '@mui/material/styles' {
     }
 }
 
-export const toolName = "Data Formulator"
+export const toolName = DEFAULT_BRAND_NAME;
 
 const LANGUAGE_LABELS: Record<string, string> = {
     en: 'EN',
@@ -748,6 +749,8 @@ const AppShell: FC = () => {
     const viewMode = useSelector((state: DataFormulatorState) => state.viewMode);
     const tables = useSelector((state: DataFormulatorState) => state.tables);
     const activeWorkspace = useSelector((state: DataFormulatorState) => state.activeWorkspace);
+    const serverConfig = useSelector((state: DataFormulatorState) => state.serverConfig);
+    const brandName = getBrandName(serverConfig);
 
     useEffect(() => {
         const authError = searchParams.get('auth_error');
@@ -810,7 +813,7 @@ const AppShell: FC = () => {
                             }
                         }} color="inherit">
                             <Typography noWrap component="h1" sx={{ fontWeight: 300, display: { xs: 'none', sm: 'block' }, letterSpacing: '0.03em' }}>
-                                {toolName}
+                                {brandName}
                             </Typography>
                         </Button>
                         <Box
@@ -1023,6 +1026,7 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
     const [authChecked, setAuthChecked] = useState(false);
     const [migrationBrowserId, setMigrationBrowserId] = useState<string | null>(null);
     const serverConfig = useSelector((state: DataFormulatorState) => state.serverConfig);
+    const brandName = getBrandName(serverConfig);
 
     useEffect(() => {
         if (!configLoaded) return;
@@ -1124,12 +1128,15 @@ export const AppFC: FC<AppFCProps> = function AppFC(appProps) {
     }, [configLoaded]);
 
     useEffect(() => {
-        document.title = toolName;
         // Load all server-configured models instantly (no connectivity check).
         // Users can verify connectivity via the "Test" button in the model dialog,
         // or errors will surface naturally when a model is first used.
         dispatch(fetchGlobalModelList());
-    }, []);
+    }, [dispatch]);
+
+    useEffect(() => {
+        document.title = brandName;
+    }, [brandName]);
 
     let theme = createTheme({
         typography: {

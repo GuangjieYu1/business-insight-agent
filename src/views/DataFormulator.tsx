@@ -38,7 +38,6 @@ import { VisualizationViewFC } from './VisualizationView';
 
 import { DndProvider } from 'react-dnd'
 import { HTML5Backend } from 'react-dnd-html5-backend'
-import { toolName } from '../app/App';
 import { DataThread } from './DataThread';
 
 import dfLogo from '../assets/df-logo.png';
@@ -58,6 +57,7 @@ import { listWorkspaces, loadWorkspace, deleteWorkspace, exportWorkspace, import
 import type { WorkspaceSummary } from '../app/workspaceService';
 import { AppDispatch } from '../app/store';
 import { generateUUID } from '../app/identity';
+import { getBrandName } from '../app/productConfig';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import IconButton from '@mui/material/IconButton';
@@ -89,6 +89,7 @@ export const DataFormulatorFC = ({ }) => {
     const selectedModelId = useSelector((state: DataFormulatorState) => state.selectedModelId);
     const viewMode = useSelector((state: DataFormulatorState) => state.viewMode);
     const serverConfig = useSelector((state: DataFormulatorState) => state.serverConfig);
+    const brandName = getBrandName(serverConfig);
     const identityKey = useSelector((state: DataFormulatorState) => `${state.identity.type}:${state.identity.id}`);
     const dataLoadingChatMessages = useSelector((state: DataFormulatorState) => state.dataLoadingChatMessages);
     const theme = useTheme();
@@ -378,7 +379,7 @@ export const DataFormulatorFC = ({ }) => {
     };
 
     useEffect(() => {
-        document.title = toolName;
+        document.title = brandName;
         
         // Preload imported images (public images are preloaded in index.html)
         const imagesToPreload = [
@@ -406,7 +407,7 @@ export const DataFormulatorFC = ({ }) => {
                 }
             });
         };
-    }, []);
+    }, [brandName]);
 
     useEffect(() => {
         // Auto-select the first available model when none is selected.
@@ -623,7 +624,7 @@ export const DataFormulatorFC = ({ }) => {
         }}>
         <Box sx={{margin:'auto', pb: '5%', display: "flex", flexDirection: "column", textAlign: "center", maxWidth: 1024, width: '100%', px: 2, boxSizing: 'border-box' }}>
             <Box sx={{display: 'flex', mx: 'auto'}}>
-                <Typography fontSize={84} sx={{ml: 2, letterSpacing: '0.05em'}}>{toolName}</Typography> 
+                <Typography fontSize={84} sx={{ml: 2, letterSpacing: '0.05em'}}>{brandName}</Typography>
             </Box>
             <Typography sx={{ 
                 fontSize: 24, color: theme.palette.text.secondary, 
@@ -985,9 +986,9 @@ export const DataFormulatorFC = ({ }) => {
                         zIndex: 1000,
                     }}>
                         <Box sx={{margin:'auto', pb: '5%', display: "flex", flexDirection: "column", textAlign: "center"}}>
-                            <Box component="img" sx={{  width: 196, margin: "auto" }} alt="Data Formulator logo" src={dfLogo} fetchPriority="high" />
+                            <Box component="img" sx={{  width: 196, margin: "auto" }} alt={`${brandName} logo`} src={dfLogo} fetchPriority="high" />
                             <Typography variant="h3" sx={{marginTop: "20px", fontWeight: 200, letterSpacing: '0.05em'}}>
-                                {toolName}
+                                {brandName}
                             </Typography>
                             <Typography  variant="h4" sx={{mt: 3, fontSize: 28, letterSpacing: '0.02em'}}>
                                 {t('landing.firstSelectModelPrefix')} <ModelSelectionButton />

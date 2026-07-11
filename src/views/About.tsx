@@ -9,7 +9,7 @@ import GitHubIcon from '@mui/icons-material/GitHub';
 import YouTubeIcon from '@mui/icons-material/YouTube';
 import { AgentIcon as PrecisionManufacturingIcon } from '../icons';
 
-import { toolName } from "../app/App";
+import { getBrandName } from "../app/productConfig";
 import { useSelector } from "react-redux";
 import { DataFormulatorState } from "../app/dfSlice";
 import { useTranslation } from 'react-i18next';
@@ -25,6 +25,8 @@ interface Feature {
 export const About: FC<{}> = function About({ }) {
     const theme = useTheme();
     const { t } = useTranslation();
+    const serverConfig = useSelector((state: DataFormulatorState) => state.serverConfig);
+    const brandName = getBrandName(serverConfig);
 
     const features: Feature[] = [
         {
@@ -107,7 +109,7 @@ export const About: FC<{}> = function About({ }) {
             <Box sx={{margin:'auto', py: 4, display: "flex", flexDirection: "column", textAlign: "center", maxWidth: 1000, width: '100%', px: 3}}>
                 {/* Header with title */}
                 <Box component="header" sx={{display: 'flex', flexDirection: 'column', mx: 'auto', mt: 2}}>
-                    <Typography component="h1" fontSize={84} sx={{letterSpacing: '0.05em'}}>{toolName}</Typography> 
+                    <Typography component="h1" fontSize={84} sx={{letterSpacing: '0.05em'}}>{brandName}</Typography>
                     <Typography component="p" sx={{ 
                         fontSize: 24, color: theme.palette.text.secondary, 
                         textAlign: 'center', mb: 4}}>
