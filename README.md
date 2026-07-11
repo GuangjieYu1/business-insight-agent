@@ -8,7 +8,9 @@ This project is not an official Microsoft product and is not affiliated with or 
 
 Current stage: Phase 1 Dataset Profiling. The project now has the Phase 0 product baseline, workspace-scoped Insight domain contracts, local Insight storage, project registration, dataset registration, immutable Dataset Version 0 snapshots, and the first read-only dataset profiling APIs.
 
-Dataset profiling currently reads `datasets/<dataset_id>/versions/version_000.parquet`, generates `DatasetProfile` and `ColumnProfile` metadata, and saves it at `datasets/<dataset_id>/profiles/version_000.json`. The first quality checks are `empty_column`, `constant_column`, `near_constant_column`, `high_missing_column`, `duplicate_rows`, `mixed_type_column`, `numeric_parse_conflict`, and `datetime_parse_conflict`.
+Dataset profiling currently reads `datasets/<dataset_id>/versions/version_000.parquet`, generates `DatasetProfile` and `ColumnProfile` metadata, and saves it at `datasets/<dataset_id>/profiles/version_000.json`. Profile generation is content-idempotent for the same source version, profiler version, and configuration hash. The first quality checks are `empty_column`, `constant_column`, `near_constant_column`, `high_missing_column`, `duplicate_rows`, `mixed_type_column`, `numeric_parse_conflict`, and `datetime_parse_conflict`.
+
+The first profiling guardrails are intentionally conservative: file size, row count, column count, and timeout limits are enforced before or during synchronous profiling; sample values are disabled by default; suspected sensitive columns and high-cardinality columns do not persist raw `top_values`; and duplicate rows are reported as both duplicate group members and excess duplicate rows.
 
 Focused Business Insight checks:
 

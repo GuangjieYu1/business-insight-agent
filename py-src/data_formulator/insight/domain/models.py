@@ -151,6 +151,9 @@ class ColumnProfile(BaseModel):
     null_ratio: float = Field(ge=0.0, le=1.0)
     distinct_count: int = Field(ge=0)
     distinct_ratio: float = Field(ge=0.0, le=1.0)
+    value_storage_policy: Literal["stored", "omitted_high_cardinality", "redacted_sensitive"] = "stored"
+    sensitive_data_detected: bool = False
+    redaction_applied: bool = False
     top_values: list[dict[str, Any]] = Field(default_factory=list)
     sample_values: list[Any] = Field(default_factory=list)
     python_types: list[str] = Field(default_factory=list)
@@ -165,12 +168,21 @@ class DatasetProfile(InsightModel):
     dataset_id: str
     version_id: str
     source_content_hash: str
+    profiler_version: str = "legacy"
+    configuration_hash: str = ""
     file_ref: str
     profile_ref: str
     row_count: int = Field(ge=0)
     column_count: int = Field(ge=0)
-    duplicate_row_count: int = Field(ge=0)
-    duplicate_row_ratio: float = Field(ge=0.0, le=1.0)
+    duplicate_row_count: int = Field(default=0, ge=0)
+    duplicate_row_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    duplicate_group_member_count: int = Field(default=0, ge=0)
+    duplicate_group_member_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    duplicate_excess_row_count: int = Field(default=0, ge=0)
+    duplicate_excess_row_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    sample_policy: Literal["disabled", "enabled"] = "disabled"
+    redaction_applied: bool = False
+    sensitive_data_detected: bool = False
     columns: list[ColumnProfile] = Field(default_factory=list)
     quality_issues: list[ProfileQualityIssue] = Field(default_factory=list)
 

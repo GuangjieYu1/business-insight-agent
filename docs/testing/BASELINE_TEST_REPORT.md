@@ -63,14 +63,15 @@ Local equivalent command:
 
 Result:
 
-- 24 passed
+- 28 passed
 
 Coverage notes:
 
 - Product-mode and health route checks.
 - Phase 1 project, dataset registration, immutable `version_000`, rollback, and workspace header hardening checks.
-- Dataset Profiling domain model, profile generation, persisted `datasets/<dataset_id>/profiles/version_000.json`, profile POST/GET route checks.
+- Dataset Profiling domain model, idempotent profile generation, persisted `datasets/<dataset_id>/profiles/version_000.json`, profile POST/GET route checks.
 - First read-only quality checks: `empty_column`, `constant_column`, `near_constant_column`, `high_missing_column`, `duplicate_rows`, `mixed_type_column`, `numeric_parse_conflict`, `datetime_parse_conflict`.
+- Profiling guardrails: source size/shape limits, deterministic profile identity, privacy-safe value storage defaults, duplicate group/excess metrics, and empty/high-missing issue de-duplication.
 
 ## Frontend Baseline
 
