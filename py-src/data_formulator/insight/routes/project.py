@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from flask import Blueprint, request
+from werkzeug.utils import secure_filename
 
 from data_formulator.auth.identity import get_identity_id
 from data_formulator.datalake.workspace import Workspace
@@ -42,7 +43,27 @@ def _workspace_context() -> tuple[str, Workspace]:
 
 
 def _workspace_id(workspace: Workspace) -> str:
-    return request.headers.get("X-Workspace-Id") or workspace.confined_root.root.name
+    server_workspace_id = workspace.confined_root.root.name
+    supplied_workspace_id = request.headers.get("X-Workspace-Id")
+    if supplied_workspace_id:
+        supplied_safe_id = secure_filename(supplied_workspace_id)
+        if supplied_safe_id != server_workspace_id:
+            raise AppError(
+                ErrorCode.INVALID_REQUEST,
+                "X-Workspace-Id does not match the active workspace",
+            )
+    return server_workspace_id
+
+
+def _optional_bool(payload: dict[str, Any], camel_key: str, snake_key: str) -> bool:
+    value = payload.get(camel_key)
+    if value is None:
+        value = payload.get(snake_key)
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    raise AppError(ErrorCode.INVALID_REQUEST, f"{camel_key} must be a boolean")
 
 
 def _store_for(workspace: Workspace) -> LocalInsightStore:
@@ -107,6 +128,7 @@ def register_dataset_route():
             dataset_id=payload.get("datasetId") or payload.get("dataset_id"),
             source_material_id=payload.get("sourceMaterialId") or payload.get("source_material_id"),
             project_name=payload.get("projectName") or payload.get("project_name") or "Business Insight Project",
+            allow_duplicate=_optional_bool(payload, "allowDuplicate", "allow_duplicate"),
         )
     except FileNotFoundError as exc:
         raise AppError(ErrorCode.TABLE_NOT_FOUND, str(exc)) from exc

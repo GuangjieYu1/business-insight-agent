@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 import hashlib
 from pathlib import Path, PurePosixPath
@@ -104,6 +105,36 @@ class LocalInsightStore:
                 pass
             raise
         return target
+
+    def make_temp_dir(self, relative_parent: str = ".", *, prefix: str = ".staging.") -> str:
+        """Create a temporary directory under the insight root and return its relative path."""
+
+        parent = self._resolve(relative_parent or ".")
+        parent.mkdir(parents=True, exist_ok=True)
+        temp_path = Path(tempfile.mkdtemp(prefix=prefix, dir=parent)).resolve()
+        return temp_path.relative_to(self.root).as_posix()
+
+    def move_tree(self, source_relative_path: str, target_relative_path: str) -> Path:
+        """Atomically move a staged directory to its final relative path."""
+
+        source = self._resolve(source_relative_path)
+        target = self._resolve(target_relative_path)
+        if not source.exists():
+            raise FileNotFoundError(f"Staged insight path not found: {source_relative_path}")
+        if target.exists():
+            raise FileExistsError(f"Refusing to overwrite insight path: {target_relative_path}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(source, target)
+        return target
+
+    def remove_tree(self, relative_path: str) -> None:
+        """Remove a relative file or directory if it exists."""
+
+        target = self._resolve(relative_path)
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.exists():
+            target.unlink()
 
     def read_parquet(self, relative_path: str) -> pd.DataFrame:
         return pd.read_parquet(self._resolve(relative_path))

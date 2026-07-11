@@ -78,3 +78,28 @@ def test_register_dataset_refuses_to_overwrite_version_zero(tmp_path: Path):
 
     loaded = store.read_parquet("datasets/dataset_sales/versions/version_000.parquet")
     assert loaded["sales"].tolist() == [10]
+
+
+def test_register_dataset_rolls_back_when_project_write_fails(tmp_path: Path, monkeypatch):
+    store = LocalInsightStore(tmp_path)
+    df = pd.DataFrame({"sales": [10]})
+    original_write_json = store.write_json
+
+    def fail_project_write(relative_path, payload):
+        if relative_path == "project.json":
+            raise RuntimeError("simulated project write failure")
+        return original_write_json(relative_path, payload)
+
+    monkeypatch.setattr(store, "write_json", fail_project_write)
+
+    with pytest.raises(RuntimeError, match="simulated project write failure"):
+        register_dataset_version_zero(
+            store,
+            workspace_id="workspace_1",
+            dataframe=df,
+            original_table_ref="sales_raw",
+            dataset_id="dataset_sales",
+        )
+
+    assert store.list_files("datasets") == []
+    assert not store.exists("project.json")

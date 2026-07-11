@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from contextlib import suppress
 
 import pandas as pd
 
@@ -53,6 +54,15 @@ def _validate_registry_id(value: str, field_name: str) -> str:
     return value
 
 
+def _optional_registry_id(value: str | None, field_name: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise InsightRegistryError(f"{field_name} must be a string")
+    cleaned = value.strip()
+    return cleaned or None
+
+
 def ensure_project(
     store: LocalInsightStore,
     *,
@@ -63,12 +73,16 @@ def ensure_project(
 ) -> ProjectRegistration:
     """Create the workspace project if missing, otherwise return it unchanged."""
 
+    workspace_id = _require_text(workspace_id, "workspace_id")
     if store.exists(PROJECT_PATH):
-        return ProjectRegistration(project=store.read_model(PROJECT_PATH, Project), created=False)
+        project = store.read_model(PROJECT_PATH, Project)
+        if project.workspace_id != workspace_id:
+            raise InsightRegistryError("Project workspace_id does not match active workspace")
+        return ProjectRegistration(project=project, created=False)
 
     project = Project(
         id=new_id("project"),
-        workspace_id=_require_text(workspace_id, "workspace_id"),
+        workspace_id=workspace_id,
         name=_require_text(name, "name"),
         description=description.strip(),
         default_language=_require_text(default_language, "default_language"),
@@ -99,6 +113,39 @@ def _version_parquet_path(dataset_id: str, version_id: str = VERSION_ZERO_ID) ->
     return f"{_dataset_dir(dataset_id)}/versions/{version_id}.parquet"
 
 
+def _find_dataset_by_original_table_ref(
+    store: LocalInsightStore,
+    original_table_ref: str,
+) -> Dataset | None:
+    for dataset in list_datasets(store):
+        if dataset.original_table_ref == original_table_ref:
+            return dataset
+    return None
+
+
+def _existing_registration(
+    store: LocalInsightStore,
+    *,
+    workspace_id: str,
+    dataset: Dataset,
+    project_name: str,
+) -> DatasetRegistration:
+    if dataset.workspace_id != workspace_id:
+        raise InsightRegistryError("Dataset workspace_id does not match active workspace")
+    version = read_dataset_version_zero(store, dataset.id)
+    if version is None:
+        raise InsightRegistryError(f"Dataset '{dataset.id}' is missing immutable Version 0")
+    if version.workspace_id != workspace_id:
+        raise InsightRegistryError("Dataset version workspace_id does not match active workspace")
+
+    project = read_project(store)
+    if project is None:
+        project = ensure_project(store, workspace_id=workspace_id, name=project_name).project
+    elif project.workspace_id != workspace_id:
+        raise InsightRegistryError("Project workspace_id does not match active workspace")
+    return DatasetRegistration(project=project, dataset=dataset, version=version, created=False)
+
+
 def register_dataset_version_zero(
     store: LocalInsightStore,
     *,
@@ -109,6 +156,7 @@ def register_dataset_version_zero(
     dataset_id: str | None = None,
     source_material_id: str | None = None,
     project_name: str = "Business Insight Project",
+    allow_duplicate: bool = False,
 ) -> DatasetRegistration:
     """Register a workspace table as an immutable Version 0 snapshot.
 
@@ -119,57 +167,116 @@ def register_dataset_version_zero(
 
     workspace_id = _require_text(workspace_id, "workspace_id")
     table_ref = _require_text(original_table_ref, "original_table_ref")
-    resolved_dataset_id = _validate_registry_id(dataset_id or new_id("dataset"), "dataset_id")
+    requested_dataset_id = _optional_registry_id(dataset_id, "dataset_id")
+    if requested_dataset_id is not None:
+        resolved_dataset_id = _validate_registry_id(requested_dataset_id, "dataset_id")
+    else:
+        resolved_dataset_id = ""
 
-    dataset_path = _dataset_path(resolved_dataset_id)
-    version_json_path = _version_json_path(resolved_dataset_id)
-    version_parquet_path = _version_parquet_path(resolved_dataset_id)
-    if (
-        store.exists(dataset_path)
-        or store.exists(version_json_path)
-        or store.exists(version_parquet_path)
-    ):
-        raise InsightAlreadyRegisteredError(
-            f"Dataset '{resolved_dataset_id}' already has immutable Version 0"
+    if requested_dataset_id is not None:
+        dataset_path = _dataset_path(resolved_dataset_id)
+        version_json_path = _version_json_path(resolved_dataset_id)
+        version_parquet_path = _version_parquet_path(resolved_dataset_id)
+        if (
+            store.exists(dataset_path)
+            or store.exists(version_json_path)
+            or store.exists(version_parquet_path)
+        ):
+            raise InsightAlreadyRegisteredError(
+                f"Dataset '{resolved_dataset_id}' already has immutable Version 0"
+            )
+
+    if not allow_duplicate:
+        existing_dataset = _find_dataset_by_original_table_ref(store, table_ref)
+        if existing_dataset is not None:
+            return _existing_registration(
+                store,
+                workspace_id=workspace_id,
+                dataset=existing_dataset,
+                project_name=project_name,
+            )
+
+    if requested_dataset_id is None:
+        resolved_dataset_id = _validate_registry_id(new_id("dataset"), "dataset_id")
+        dataset_path = _dataset_path(resolved_dataset_id)
+        version_json_path = _version_json_path(resolved_dataset_id)
+        version_parquet_path = _version_parquet_path(resolved_dataset_id)
+        if (
+            store.exists(dataset_path)
+            or store.exists(version_json_path)
+            or store.exists(version_parquet_path)
+        ):
+            raise InsightAlreadyRegisteredError(
+                f"Dataset '{resolved_dataset_id}' already has immutable Version 0"
+            )
+
+    project = read_project(store)
+    if project is None:
+        project = Project(
+            id=new_id("project"),
+            workspace_id=workspace_id,
+            name=_require_text(project_name, "project_name"),
         )
+    elif project.workspace_id != workspace_id:
+        raise InsightRegistryError("Project workspace_id does not match active workspace")
 
-    project_registration = ensure_project(
-        store,
-        workspace_id=workspace_id,
-        name=project_name,
-    )
-
-    store.write_parquet(version_parquet_path, dataframe, overwrite=False)
-    version = DatasetVersion(
-        id=VERSION_ZERO_ID,
-        workspace_id=workspace_id,
-        dataset_id=resolved_dataset_id,
-        content_hash=store.file_sha256(version_parquet_path),
-        row_count=int(len(dataframe)),
-        column_count=int(len(dataframe.columns)),
-        file_ref=version_parquet_path,
-    )
-    dataset = Dataset(
-        id=resolved_dataset_id,
-        workspace_id=workspace_id,
-        name=_require_text(dataset_name or table_ref, "dataset_name"),
-        source_material_id=source_material_id,
-        original_table_ref=table_ref,
-        original_version_id=version.id,
-        active_version_id=version.id,
-    )
-
-    store.write_json(version_json_path, version)
-    store.write_json(dataset_path, dataset)
-
-    project = project_registration.project.model_copy(
+    staged_dir = store.make_temp_dir("datasets")
+    final_dir = _dataset_dir(resolved_dataset_id)
+    staged_version_json_path = f"{staged_dir}/versions/{VERSION_ZERO_ID}.json"
+    staged_version_parquet_path = f"{staged_dir}/versions/{VERSION_ZERO_ID}.parquet"
+    staged_dataset_path = f"{staged_dir}/dataset.json"
+    final_project = project.model_copy(
         update={
-            "active_dataset_id": dataset.id,
+            "active_dataset_id": resolved_dataset_id,
             "updated_at": utc_now(),
         }
     )
-    store.write_json(PROJECT_PATH, project)
-    return DatasetRegistration(project=project, dataset=dataset, version=version, created=True)
+    final_dir_moved = False
+
+    try:
+        store.write_parquet(staged_version_parquet_path, dataframe, overwrite=False)
+        version = DatasetVersion(
+            id=VERSION_ZERO_ID,
+            workspace_id=workspace_id,
+            dataset_id=resolved_dataset_id,
+            content_hash=store.file_sha256(staged_version_parquet_path),
+            row_count=int(len(dataframe)),
+            column_count=int(len(dataframe.columns)),
+            file_ref=version_parquet_path,
+        )
+        dataset = Dataset(
+            id=resolved_dataset_id,
+            workspace_id=workspace_id,
+            name=_require_text(dataset_name or table_ref, "dataset_name"),
+            source_material_id=source_material_id,
+            original_table_ref=table_ref,
+            original_version_id=version.id,
+            active_version_id=version.id,
+        )
+
+        store.write_json(staged_version_json_path, version)
+        store.write_json(staged_dataset_path, dataset)
+
+        if (
+            store.exists(dataset_path)
+            or store.exists(version_json_path)
+            or store.exists(version_parquet_path)
+        ):
+            raise InsightAlreadyRegisteredError(
+                f"Dataset '{resolved_dataset_id}' already has immutable Version 0"
+            )
+        store.move_tree(staged_dir, final_dir)
+        final_dir_moved = True
+        store.write_json(PROJECT_PATH, final_project)
+    except Exception:
+        with suppress(Exception):
+            if final_dir_moved:
+                store.remove_tree(final_dir)
+            else:
+                store.remove_tree(staged_dir)
+        raise
+
+    return DatasetRegistration(project=final_project, dataset=dataset, version=version, created=True)
 
 
 def list_datasets(store: LocalInsightStore) -> list[Dataset]:
