@@ -1,0 +1,32 @@
+name: Import Data Formulator upstream
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/import-upstream.yml
+
+permissions:
+  contents: write
+
+jobs:
+  import-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Import Microsoft Data Formulator main branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/microsoft/data-formulator.git
+          git fetch upstream main
+          git branch -f upstream-base upstream/main
+          git push origin upstream-base --force
