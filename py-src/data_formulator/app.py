@@ -201,8 +201,9 @@ def _register_blueprints():
     app.register_blueprint(demo_stream_bp)
 
     # Register Business Insight extension routes.
-    from data_formulator.insight.routes import insight_health_bp
+    from data_formulator.insight.routes import insight_health_bp, insight_project_bp
     app.register_blueprint(insight_health_bp)
+    app.register_blueprint(insight_project_bp)
 
     # Initialise pluggable authentication (reads AUTH_PROVIDER env var)
     from data_formulator.auth.identity import init_auth, get_active_provider

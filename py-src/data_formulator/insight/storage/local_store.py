@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import hashlib
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, TypeVar
 
+import pandas as pd
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
@@ -73,6 +75,46 @@ class LocalInsightStore:
 
     def read_model(self, relative_path: str, model_type: type[T]) -> T:
         return model_type.model_validate(self.read_json(relative_path))
+
+    def write_parquet(
+        self,
+        relative_path: str,
+        dataframe: pd.DataFrame,
+        *,
+        overwrite: bool = False,
+    ) -> Path:
+        target = self._resolve(relative_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and not overwrite:
+            raise FileExistsError(f"Refusing to overwrite existing parquet: {relative_path}")
+
+        fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+        os.close(fd)
+        try:
+            dataframe.to_parquet(temp_name, index=False)
+            with open(temp_name, "rb") as handle:
+                os.fsync(handle.fileno())
+            if target.exists() and not overwrite:
+                raise FileExistsError(f"Refusing to overwrite existing parquet: {relative_path}")
+            os.replace(temp_name, target)
+        except Exception:
+            try:
+                os.unlink(temp_name)
+            except FileNotFoundError:
+                pass
+            raise
+        return target
+
+    def read_parquet(self, relative_path: str) -> pd.DataFrame:
+        return pd.read_parquet(self._resolve(relative_path))
+
+    def file_sha256(self, relative_path: str) -> str:
+        target = self._resolve(relative_path)
+        digest = hashlib.sha256()
+        with target.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return f"sha256:{digest.hexdigest()}"
 
     def append_ndjson(self, relative_path: str, payload: BaseModel | dict[str, Any]) -> Path:
         target = self._resolve(relative_path)
