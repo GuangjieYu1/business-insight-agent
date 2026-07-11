@@ -1,32 +1,63 @@
-name: Import Data Formulator upstream
+name: Import Data Formulator upstream and bootstrap
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/import-upstream.yml
+  issues:
+    types: [opened]
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   import-upstream:
+    if: github.event_name == 'workflow_dispatch' || github.event.issue.title == '[automation] import upstream and bootstrap'
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
+      - name: Check out repository metadata
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Import Microsoft Data Formulator main branch
+      - name: Preserve bootstrap patch
+        shell: bash
+        run: cp bootstrap/bootstrap-business-insight.patch.gz /tmp/bootstrap-business-insight.patch.gz
+
+      - name: Import Microsoft Data Formulator and apply Business Insight bootstrap
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote remove upstream 2>/dev/null || true
           git remote add upstream https://github.com/microsoft/data-formulator.git
           git fetch upstream main
+
           git branch -f upstream-base upstream/main
           git push origin upstream-base --force
+
+          git checkout -B develop upstream/main
+          gzip -dc /tmp/bootstrap-business-insight.patch.gz > /tmp/bootstrap-business-insight.patch
+          git apply --3way --whitespace=fix --exclude=.gitignore /tmp/bootstrap-business-insight.patch
+          git add -A
+          git commit -m "chore: bootstrap business insight foundation"
+          git push origin develop --force-with-lease
+
+      - name: Close automation issue
+        if: github.event_name == 'issues'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: 'Upstream import and Business Insight bootstrap workflow completed.'
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: 'closed'
+            });
