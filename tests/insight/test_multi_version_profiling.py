@@ -89,6 +89,31 @@ def test_version_proposals_use_exact_profile_version(tmp_path: Path):
     assert [proposal.id for proposal in persisted] == [proposal.id for proposal in proposals]
 
 
+def test_repeated_version_proposal_generation_preserves_workflow_state(tmp_path: Path):
+    store = _store_with_two_versions(tmp_path)
+    proposals = generate_cleaning_proposals_for_version(
+        store,
+        workspace_id="workspace_1",
+        dataset_id="dataset_sales",
+        version_id="version_001",
+    )
+    duplicate = next(proposal for proposal in proposals if proposal.problem_type == "duplicate_rows")
+    approved = duplicate.model_copy(update={"status": "approved"})
+    store.write_json(f"proposals/{approved.id}.json", approved)
+
+    regenerated = generate_cleaning_proposals_for_version(
+        store,
+        workspace_id="workspace_1",
+        dataset_id="dataset_sales",
+        version_id="version_001",
+    )
+
+    persisted_duplicate = next(
+        proposal for proposal in regenerated if proposal.id == approved.id
+    )
+    assert persisted_duplicate.status == "approved"
+
+
 def test_missing_version_profile_is_rejected(tmp_path: Path):
     store = _store_with_two_versions(tmp_path)
 
