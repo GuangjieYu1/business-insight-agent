@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from data_formulator.insight.domain import CleaningOperation, DatasetProfile
+from data_formulator.insight.domain.models import build_profile_issue_id
 from data_formulator.insight.registry import InsightRegistryError, read_dataset, read_dataset_version
 from data_formulator.insight.storage import InsightStore
 from data_formulator.insight.version_profiling import generate_dataset_version_profile
@@ -74,15 +74,10 @@ def read_dataset_operation(
 
 
 def _issue_key(issue) -> str:
-    return json.dumps(
-        {
-            "issue_type": issue.issue_type,
-            "scope": issue.scope,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    # New and legacy Profiles both resolve to the same deterministic identity.
+    # ProfileQualityIssue populates missing issue_id values while deserializing;
+    # the fallback keeps this function safe for compatible issue-like objects.
+    return issue.issue_id or build_profile_issue_id(issue.issue_type, issue.scope)
 
 
 def _profile_metrics(profile: DatasetProfile) -> dict[str, int]:
