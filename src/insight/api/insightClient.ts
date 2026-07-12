@@ -1,8 +1,13 @@
 import { ApiRequestError, apiRequest } from '../../app/apiClient';
 import type {
+    CleaningApplyResponse,
+    CleaningPreviewResponse,
+    CleaningProposal,
+    DatasetVersionsResponse,
     InsightError,
     ReadDatasetProfileResponse,
     RegisterDatasetResponse,
+    UndoOperationResponse,
 } from '../types';
 
 export interface RegisterDatasetParams {
@@ -10,7 +15,18 @@ export interface RegisterDatasetParams {
     datasetName: string;
 }
 
+export interface CleaningOperationRequest {
+    operationType?: string;
+    parameters?: Record<string, unknown>;
+    reason?: string;
+}
+
 const insightUrl = (path: string): string => `/api/insight${path}`;
+const jsonOptions = (body?: unknown): RequestInit => ({
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+});
 
 export function toInsightError(error: unknown): InsightError {
     if (error instanceof ApiRequestError) {
@@ -85,4 +101,101 @@ export async function generateVersionZeroProfile(
         },
     );
     return data.profile;
+}
+
+export async function listCleaningProposals(
+    datasetId: string,
+    versionId = 'version_000',
+    signal?: AbortSignal,
+): Promise<CleaningProposal[]> {
+    const params = new URLSearchParams({ datasetId, versionId });
+    const { data } = await apiRequest<{ proposals: CleaningProposal[] }>(
+        insightUrl(`/cleaning/proposals?${params.toString()}`),
+        { method: 'GET', signal },
+    );
+    return data.proposals;
+}
+
+export async function generateCleaningProposals(
+    datasetId: string,
+    versionId = 'version_000',
+    signal?: AbortSignal,
+): Promise<CleaningProposal[]> {
+    const { data } = await apiRequest<{ proposals: CleaningProposal[] }>(
+        insightUrl('/cleaning/proposals'),
+        {
+            ...jsonOptions({ datasetId, versionId }),
+            signal,
+        },
+    );
+    return data.proposals;
+}
+
+export async function previewCleaningProposal(
+    proposalId: string,
+    request: CleaningOperationRequest = {},
+    signal?: AbortSignal,
+): Promise<CleaningPreviewResponse> {
+    const { data } = await apiRequest<CleaningPreviewResponse>(
+        insightUrl(`/cleaning/proposals/${proposalId}/preview`),
+        { ...jsonOptions(request), signal },
+    );
+    return data;
+}
+
+export async function approveCleaningProposal(
+    proposalId: string,
+    signal?: AbortSignal,
+): Promise<CleaningProposal> {
+    const { data } = await apiRequest<{ proposal: CleaningProposal }>(
+        insightUrl(`/cleaning/proposals/${proposalId}/approve`),
+        { ...jsonOptions(), signal },
+    );
+    return data.proposal;
+}
+
+export async function rejectCleaningProposal(
+    proposalId: string,
+    signal?: AbortSignal,
+): Promise<CleaningProposal> {
+    const { data } = await apiRequest<{ proposal: CleaningProposal }>(
+        insightUrl(`/cleaning/proposals/${proposalId}/reject`),
+        { ...jsonOptions(), signal },
+    );
+    return data.proposal;
+}
+
+export async function applyCleaningProposal(
+    proposalId: string,
+    request: CleaningOperationRequest = {},
+    signal?: AbortSignal,
+): Promise<CleaningApplyResponse> {
+    const { data } = await apiRequest<CleaningApplyResponse>(
+        insightUrl(`/cleaning/proposals/${proposalId}/apply`),
+        { ...jsonOptions(request), signal },
+    );
+    return data;
+}
+
+export async function listDatasetVersions(
+    datasetId: string,
+    signal?: AbortSignal,
+): Promise<DatasetVersionsResponse> {
+    const { data } = await apiRequest<DatasetVersionsResponse>(
+        insightUrl(`/datasets/${datasetId}/versions`),
+        { method: 'GET', signal },
+    );
+    return data;
+}
+
+export async function undoCleaningOperation(
+    operationId: string,
+    reason = 'Undo cleaning operation',
+    signal?: AbortSignal,
+): Promise<UndoOperationResponse> {
+    const { data } = await apiRequest<UndoOperationResponse>(
+        insightUrl(`/operations/${operationId}/undo`),
+        { ...jsonOptions({ reason }), signal },
+    );
+    return data;
 }
