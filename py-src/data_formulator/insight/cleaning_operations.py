@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 
+from data_formulator.datalake.workspace_metadata import WorkspaceLock
 from data_formulator.insight.domain import CleaningOperation, CleaningProposal, Dataset, DatasetVersion
 from data_formulator.insight.domain.models import utc_now
 from data_formulator.insight.registry import read_dataset, read_dataset_version
@@ -95,6 +96,12 @@ def _dataset_id(proposal: CleaningProposal) -> str:
     return _validate_id(dataset_id, "dataset_id")
 
 
+def _cleaning_apply_lock(store: InsightStore, proposal: CleaningProposal) -> WorkspaceLock:
+    dataset_id = _dataset_id(proposal)
+    version_id = _validate_id(proposal.dataset_version_id, "dataset_version_id")
+    return WorkspaceLock(store.root / ".cleaning-locks" / dataset_id / version_id)
+
+
 def _require_dataset_and_version(
     store: InsightStore,
     *,
@@ -133,7 +140,10 @@ def _column_name(proposal: CleaningProposal) -> str:
 
 
 def _resolve_operation(proposal: CleaningProposal, operation_type: str | None) -> str:
-    selected = (operation_type or proposal.recommended_operation).strip()
+    selected_value: Any = operation_type if operation_type is not None else proposal.recommended_operation
+    if not isinstance(selected_value, str) or not selected_value.strip():
+        raise InsightCleaningOperationError("operationType must be a non-empty string")
+    selected = selected_value.strip()
     allowed = {proposal.recommended_operation, *proposal.alternatives}
     if selected not in allowed:
         raise InsightCleaningOperationError(
@@ -492,72 +502,84 @@ def apply_cleaning_proposal(
     parameters: dict[str, Any] | None = None,
     reason: str | None = None,
 ) -> CleaningApplyResult:
-    proposal = _require_proposal(store, workspace_id=workspace_id, proposal_id=proposal_id)
-    if proposal.status not in {"approved", "applied"}:
-        raise InsightCleaningOperationError("Cleaning proposal must be approved before apply")
-
-    existing_for_proposal = _find_completed_operation(store, proposal_id=proposal.id)
-    if existing_for_proposal is not None:
-        return _result_from_existing_operation(
+    initial_proposal = _require_proposal(
+        store,
+        workspace_id=workspace_id,
+        proposal_id=proposal_id,
+    )
+    with _cleaning_apply_lock(store, initial_proposal):
+        proposal = _require_proposal(
             store,
+            workspace_id=workspace_id,
+            proposal_id=proposal_id,
+        )
+        if proposal.status not in {"approved", "applied"}:
+            raise InsightCleaningOperationError("Cleaning proposal must be approved before apply")
+
+        existing_for_proposal = _find_completed_operation(store, proposal_id=proposal.id)
+        if existing_for_proposal is not None:
+            return _result_from_existing_operation(
+                store,
+                proposal=proposal,
+                operation=existing_for_proposal,
+            )
+
+        dataset, source_version = _require_dataset_and_version(
+            store,
+            workspace_id=workspace_id,
             proposal=proposal,
-            operation=existing_for_proposal,
+            require_active=True,
+        )
+        preview_operation, _, _, output = _build_preview(
+            store,
+            workspace_id=workspace_id,
+            proposal=proposal,
+            operation_type=operation_type,
+            parameters=parameters,
+        )
+        key = str(preview_operation.parameters["idempotency_key"])
+
+        existing_for_key = _find_completed_operation(store, idempotency_key=key)
+        if existing_for_key is not None:
+            return _result_from_existing_operation(
+                store,
+                proposal=proposal,
+                operation=existing_for_key,
+            )
+
+        mutation = create_dataset_version(
+            store,
+            workspace_id=workspace_id,
+            dataset_id=dataset.id,
+            dataframe=output,
+            reason=reason or f"Apply cleaning proposal {proposal.id}",
+            parent_version_id=source_version.id,
+            operation_type=preview_operation.operation_type,
+            parameters=dict(preview_operation.parameters),
+            activate=True,
+        )
+        completed_operation = mutation.operation.model_copy(
+            update={
+                "proposal_id": proposal.id,
+                "before_metrics": preview_operation.before_metrics,
+                "after_metrics": preview_operation.after_metrics,
+                "metric_delta": preview_operation.metric_delta,
+                "animation_payload": preview_operation.animation_payload,
+                "updated_at": utc_now(),
+            }
+        )
+        applied_proposal = proposal.model_copy(
+            update={"status": "applied", "updated_at": utc_now()}
         )
 
-    dataset, source_version = _require_dataset_and_version(
-        store,
-        workspace_id=workspace_id,
-        proposal=proposal,
-        require_active=True,
-    )
-    preview_operation, _, _, output = _build_preview(
-        store,
-        workspace_id=workspace_id,
-        proposal=proposal,
-        operation_type=operation_type,
-        parameters=parameters,
-    )
-    key = str(preview_operation.parameters["idempotency_key"])
+        with store.workspace_lock():
+            store.write_json(_operation_path(completed_operation.id), completed_operation)
+            store.write_json(_proposal_path(applied_proposal.id), applied_proposal)
 
-    existing_for_key = _find_completed_operation(store, idempotency_key=key)
-    if existing_for_key is not None:
-        return _result_from_existing_operation(
-            store,
-            proposal=proposal,
-            operation=existing_for_key,
+        return CleaningApplyResult(
+            proposal=applied_proposal,
+            dataset=mutation.dataset,
+            version=mutation.version,
+            operation=completed_operation,
+            idempotent=False,
         )
-
-    mutation = create_dataset_version(
-        store,
-        workspace_id=workspace_id,
-        dataset_id=dataset.id,
-        dataframe=output,
-        reason=reason or f"Apply cleaning proposal {proposal.id}",
-        parent_version_id=source_version.id,
-        operation_type=preview_operation.operation_type,
-        parameters=dict(preview_operation.parameters),
-        activate=True,
-    )
-    completed_operation = mutation.operation.model_copy(
-        update={
-            "proposal_id": proposal.id,
-            "before_metrics": preview_operation.before_metrics,
-            "after_metrics": preview_operation.after_metrics,
-            "metric_delta": preview_operation.metric_delta,
-            "animation_payload": preview_operation.animation_payload,
-            "updated_at": utc_now(),
-        }
-    )
-    applied_proposal = proposal.model_copy(update={"status": "applied", "updated_at": utc_now()})
-
-    with store.workspace_lock():
-        store.write_json(_operation_path(completed_operation.id), completed_operation)
-        store.write_json(_proposal_path(applied_proposal.id), applied_proposal)
-
-    return CleaningApplyResult(
-        proposal=applied_proposal,
-        dataset=mutation.dataset,
-        version=mutation.version,
-        operation=completed_operation,
-        idempotent=False,
-    )
