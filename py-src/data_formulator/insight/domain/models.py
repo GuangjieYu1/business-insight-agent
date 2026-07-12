@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
+import hashlib
+import json
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def utc_now() -> datetime:
@@ -136,14 +138,76 @@ ProfileIssueType = Literal[
     "whitespace_pollution",
 ]
 
+PROFILE_ISSUE_ID_NAMESPACE = "profile-quality-issue:v1"
+
+
+def _normalize_profile_issue_scope(value: Any) -> Any:
+    """Return a JSON-safe canonical representation for issue identity.
+
+    Mapping key order is normalized. Sequence order is intentionally preserved
+    because it may carry detector semantics; sets are sorted by canonical JSON.
+    """
+
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_profile_issue_scope(value[key])
+            for key in sorted(value, key=lambda item: str(item))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_normalize_profile_issue_scope(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        normalized = [_normalize_profile_issue_scope(item) for item in value]
+        return sorted(
+            normalized,
+            key=lambda item: json.dumps(
+                item,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
+    if isinstance(value, StrEnum):
+        return value.value
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def build_profile_issue_id(issue_type: str, scope: dict[str, Any]) -> str:
+    payload = {
+        "namespace": PROFILE_ISSUE_ID_NAMESPACE,
+        "issue_type": issue_type,
+        "scope": _normalize_profile_issue_scope(scope),
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return f"issue_{digest[:32]}"
+
+
 class ProfileQualityIssue(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True, use_enum_values=True)
 
+    issue_id: str | None = None
     issue_type: ProfileIssueType
     severity: Severity = Severity.LOW
     scope: dict[str, Any] = Field(default_factory=dict)
     metrics: dict[str, Any] = Field(default_factory=dict)
     message: str
+
+    @model_validator(mode="after")
+    def _populate_and_validate_issue_id(self):
+        expected = build_profile_issue_id(self.issue_type, self.scope)
+        if self.issue_id is None:
+            self.issue_id = expected
+        elif self.issue_id != expected:
+            raise ValueError("issue_id does not match issue_type and normalized scope")
+        return self
 
 
 class ColumnProfile(BaseModel):
