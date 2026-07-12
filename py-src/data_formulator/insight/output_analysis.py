@@ -5,13 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from data_formulator.insight.cleaning import InsightCleaningError
 from data_formulator.insight.cleaning_operations import (
     CleaningApplyResult,
     apply_cleaning_proposal,
 )
 from data_formulator.insight.domain import CleaningProposal, DatasetProfile
-from data_formulator.insight.profiling import InsightProfileError
 from data_formulator.insight.storage import InsightStore
 from data_formulator.insight.version_cleaning import generate_cleaning_proposals_for_version
 from data_formulator.insight.version_profiling import generate_dataset_version_profile
@@ -60,7 +58,7 @@ def apply_cleaning_proposal_with_output_analysis(
             dataset_id=applied.dataset.id,
             version_id=applied.version.id,
         )
-    except InsightProfileError as exc:
+    except Exception as exc:
         warnings.append(f"Output version profile failed: {exc}")
         return CleaningOutputAnalysisResult(
             apply_result=applied,
@@ -78,7 +76,7 @@ def apply_cleaning_proposal_with_output_analysis(
             dataset_id=applied.dataset.id,
             version_id=applied.version.id,
         )
-    except InsightCleaningError as exc:
+    except Exception as exc:
         warnings.append(f"Output version proposal generation failed: {exc}")
         return CleaningOutputAnalysisResult(
             apply_result=applied,
