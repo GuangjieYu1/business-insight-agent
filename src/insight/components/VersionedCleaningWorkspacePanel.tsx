@@ -14,10 +14,12 @@ import {
     Stack,
     Typography,
 } from '@mui/material';
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import {
     compareDatasetProfiles,
+    INSIGHT_DATASET_HISTORY_CHANGED,
     listDatasetOperations,
     listDatasetVersions,
     toInsightError,
@@ -49,7 +51,7 @@ const comparisonMetricKeys = [
     'medium_issue_count',
 ] as const;
 
-function issueLabel(issue: ProfileQualityIssue, t: (key: string, options?: Record<string, unknown>) => string) {
+function issueLabel(issue: ProfileQualityIssue, t: TFunction): string {
     const column = typeof issue.scope.column === 'string' ? ` · ${issue.scope.column}` : '';
     return `${t(`insight.issueTypes.${issue.issue_type}`, { defaultValue: issue.issue_type })}${column}`;
 }
@@ -114,8 +116,8 @@ export function VersionedCleaningWorkspacePanel({
                 void loadContext(undefined, true);
             }
         };
-        window.addEventListener('insight:dataset-history-changed', listener);
-        return () => window.removeEventListener('insight:dataset-history-changed', listener);
+        window.addEventListener(INSIGHT_DATASET_HISTORY_CHANGED, listener);
+        return () => window.removeEventListener(INSIGHT_DATASET_HISTORY_CHANGED, listener);
     }, [datasetId, loadContext]);
 
     const selectedVersion = useMemo(
@@ -160,13 +162,12 @@ export function VersionedCleaningWorkspacePanel({
         try {
             const result = await undoCleaningOperation(latestUndoableOperation.id);
             setNotice(t('insight.cleaning.notice.undone', { versionId: result.activeVersion.id }));
-            await loadContext(undefined, true);
         } catch (caught) {
             setError(toInsightError(caught));
         } finally {
             setUndoing(false);
         }
-    }, [latestUndoableOperation, loadContext, t]);
+    }, [latestUndoableOperation, t]);
 
     if (loading) {
         return (
