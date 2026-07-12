@@ -2,58 +2,67 @@
 
 ## Current stage
 
-Phase 4 reversible cleaning workflow is complete on `develop`.
+Phase 5 multi-version profiling and continuous cleaning workflow is complete on `develop`.
 
 The current Business Insight flow is:
 
 ```text
 register dataset
 → immutable version_000
-→ deterministic profile
-→ cleaning proposals
-→ privacy-safe preview
+→ deterministic Profile
+→ version-bound cleaning Proposals
+→ privacy-safe Preview
 → approve or reject
-→ apply as a new dataset version
-→ inspect version history
-→ undo
+→ Apply as version_001
+→ automatically Profile version_001
+→ generate the next version_001 Proposals
+→ compare parent and child Profiles
+→ continue cleaning or Undo from persistent Operation history
 ```
+
+The frozen Phase 4 release remains on `release/phase4` and is tracked by Draft PR #12. It intentionally excludes Phase 5 and still requires a real-browser smoke test before merging into `main`.
 
 ## Completed
 
-- Restored the full Data Formulator source tree and retained upstream-compatible package, route, and Redux boundaries.
-- Added configurable `data_formulator` and `business_insight` product modes with backend-provided branding.
-- Added versioned Business Insight domain contracts and workspace-confined Insight storage.
-- Added `InsightStore` protocol boundaries, atomic JSON/NDJSON/Parquet writes, and workspace locking.
-- Added project registration, dataset registration, and immutable `version_000` snapshots.
-- Added dataset version creation, activation, history listing, branching, operation records, and Undo.
-- Added deterministic dataset profiling with profiler/config metadata, content-idempotent profile IDs, resource limits, privacy-safe value persistence, and duplicate-row metrics.
-- Added the full current detector set: empty, constant, near-constant, high-missing, duplicate rows/columns, mixed types, numeric/date parse conflicts, dirty characters, high-cardinality identifiers, outliers, invalid or unclear headers, infinite values, and whitespace pollution.
-- Added the Business Insight profiling display with dataset registration, saved-profile loading, and `version_000` fallback generation.
-- Added deterministic cleaning proposal generation with issue-to-operation mapping.
-- Added whitelist-based reversible cleaning operations for `trim_string`, `replace_invalid_character`, `drop_duplicate_rows`, `rename_column`, and `drop_column`.
-- Added privacy-safe Preview, Approve, Reject, Apply, idempotency, stale-version rejection, and per-input-version concurrency serialization.
-- Added the bilingual Cleaning Suggestions workspace with proposal status, Preview metrics, Apply, version history, and latest-operation Undo.
-- Expanded CI gates to cover Business Insight backend tests, existing Insight frontend tests, cleaning API client tests, cleaning workspace panel tests, production frontend build, Python artifact build, and artifact archive.
-- Synchronized the former `main`-only temporary workflow commits into `develop` through PR #8 without changing the product tree.
+- Retained upstream-compatible package, API-prefix, and Redux boundaries from Microsoft Data Formulator.
+- Added configurable `data_formulator` and `business_insight` product modes.
+- Added workspace-confined Insight storage, atomic JSON/NDJSON/Parquet writes, and workspace locking.
+- Added project and dataset registration with immutable `version_000` snapshots.
+- Added dataset version creation, activation, branching, history, Operation records, and Undo.
+- Added deterministic, privacy-safe Profiling with resource limits and the complete current detector set.
+- Added bilingual Profiling display and deterministic cleaning Proposal generation.
+- Added whitelist-based reversible operations for `trim_string`, `replace_invalid_character`, `drop_duplicate_rows`, `rename_column`, and `drop_column`.
+- Added privacy-safe Preview, Approve, Reject, idempotent Apply, stale-version rejection, and per-input-version concurrency serialization.
+- Added version-specific Profile GET/POST APIs and version-specific Proposal GET/POST APIs while preserving `version_000` compatibility routes.
+- Added best-effort output analysis: successful Apply profiles the immutable output version and generates its next Proposal set; post-processing failures never roll back a successful version.
+- Added persistent dataset Operation history and Profile comparison APIs.
+- Added deterministic resolved, introduced, and unchanged issue classification plus before/after metric deltas.
+- Added a bilingual dataset version selector in Cleaning Suggestions.
+- Historical versions are read-only; only the active version exposes executable cleaning controls.
+- Added persistent Undo recovery after page refresh by loading backend Operation history.
+- Added automatic version-context refresh after successful Apply or Undo.
+- Expanded CI to cover the version-aware API client and versioned cleaning workspace panel.
 
 ## Current limitations
 
-- Profiling, the profiling display, and automatic proposal generation still default to `version_000`; arbitrary-version profiling is not implemented yet.
-- Apply creates and activates a new immutable dataset version but does not automatically profile that output version or generate its next proposal set.
-- The Cleaning Suggestions panel displays version history, but its proposal context is not yet an interactive version selector.
-- Undo is fully persisted on the backend, but the frontend only exposes Undo for the latest operation returned in the current UI session.
-- Casting, imputation, conditional row deletion, and other higher-risk cleaning operations remain deferred.
-- Profile and proposal generation remain synchronous HTTP work, protected by file-size, row-count, column-count, and timeout guardrails.
+- The standalone Data Profile tab still opens through the original selected-table `version_000` registration flow; multi-version comparison is currently presented in Cleaning Suggestions.
+- The embedded legacy cleaning panel retains a small amount of duplicate version-summary information beneath the new version context card.
+- Casting, date conversion, imputation, value replacement, conditional row deletion, and other higher-risk operations remain disabled.
+- Profile and Proposal generation remain synchronous HTTP work, protected by file-size, row-count, column-count, and timeout guardrails.
+- Profile comparison currently uses issue type plus Scope as issue identity; future detector revisions may require an explicit stable issue key.
+- The frozen Phase 4 release cannot merge into `main` until its real-browser journey is verified.
+- Old merged Feature branches still exist remotely because the available connector cannot delete Git refs.
 - `upstream/dev` remains ahead of the stable `upstream/main` baseline and has not been merged into the product fork.
 
 ## Next implementation target
 
-Phase 5 should close the multi-version analysis loop:
+Phase 6 should focus on operational maturity rather than widening the deterministic core too quickly:
 
-1. Add version-specific Profile APIs and preserve the current `version_000` routes as compatibility aliases.
-2. Profile each successful cleaning output version and generate proposals for that exact version.
-3. Add version-aware Profile and Proposal selection in the frontend.
-4. Add before/after Profile comparison with resolved, introduced, and unchanged issues plus metric deltas.
-5. Add persistent Operation history APIs so Undo remains available after a page refresh.
-6. Keep all persistent business-analysis data inside workspace-scoped Insight storage.
-7. Defer asynchronous profiling jobs until the deterministic multi-version workflow is stable.
+1. Run and record the Phase 4 real-browser smoke test, then merge frozen PR #12 into `main`.
+2. Remove duplicate version-summary presentation from the embedded cleaning panel.
+3. Add explicit stable issue identifiers for long-lived cross-profiler comparisons.
+4. Add higher-risk cleaning operations with explicit error and data-loss policies.
+5. Move Profile and Proposal generation to asynchronous jobs with queued/running/completed/failed/cancelled states.
+6. Add task polling or SSE, cancellation, retry, and persisted job history.
+7. Continue keeping all business-analysis data under workspace-scoped Insight storage.
+8. Clean up merged Feature branches manually after release verification.
