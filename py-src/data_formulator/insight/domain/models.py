@@ -139,19 +139,28 @@ ProfileIssueType = Literal[
 ]
 
 PROFILE_ISSUE_ID_NAMESPACE = "profile-quality-issue:v1"
+PROFILE_ISSUE_NON_IDENTITY_SCOPE_KEYS = frozenset(
+    {
+        "version_id",
+        "dataset_version_id",
+    }
+)
 
 
 def _normalize_profile_issue_scope(value: Any) -> Any:
     """Return a JSON-safe canonical representation for issue identity.
 
-    Mapping key order is normalized. Sequence order is intentionally preserved
-    because it may carry detector semantics; sets are sorted by canonical JSON.
+    Mapping key order is normalized. Dataset-version references are excluded
+    because the same semantic issue must retain one identity across immutable
+    versions. Sequence order is intentionally preserved because it may carry
+    detector semantics; sets are sorted by canonical JSON.
     """
 
     if isinstance(value, dict):
         return {
             str(key): _normalize_profile_issue_scope(value[key])
             for key in sorted(value, key=lambda item: str(item))
+            if str(key) not in PROFILE_ISSUE_NON_IDENTITY_SCOPE_KEYS
         }
     if isinstance(value, (list, tuple)):
         return [_normalize_profile_issue_scope(item) for item in value]
