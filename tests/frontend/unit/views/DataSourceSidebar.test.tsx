@@ -15,6 +15,11 @@ const { dispatch, mockState } = vi.hoisted(() => ({
     },
 }));
 
+const makeAction = (type: string) => Object.assign(
+    (payload: any) => ({ type, payload }),
+    { type },
+);
+
 vi.mock('../../../../src/app/apiClient', () => ({
     apiRequest: vi.fn(),
 }));
@@ -34,16 +39,25 @@ vi.mock('react-redux', () => ({
     useSelector: (selector: (state: any) => unknown) => selector(mockState),
 }));
 
-vi.mock('../../../../src/app/dfSlice', () => ({
-    dfActions: {
-        addMessages: (payload: any) => ({ type: 'messages/add', payload }),
-        setDataSourceSidebarOpen: (payload: any) => ({ type: 'sidebar/setOpen', payload }),
-        setSessionLoading: (payload: any) => ({ type: 'session/setLoading', payload }),
-        loadState: (payload: any) => ({ type: 'state/load', payload }),
-        setActiveWorkspace: (payload: any) => ({ type: 'workspace/setActive', payload }),
-    },
-    fetchFieldSemanticType: vi.fn(),
-}));
+vi.mock('../../../../src/app/dfSlice', () => {
+    const makeAction = (type: string) => Object.assign(
+        (payload: any) => ({ type, payload }),
+        { type },
+    );
+
+    return {
+        dfActions: {
+            addMessages: makeAction('messages/add'),
+            setDataSourceSidebarOpen: makeAction('sidebar/setOpen'),
+            setSessionLoading: makeAction('session/setLoading'),
+            loadState: makeAction('state/load'),
+            setActiveWorkspace: makeAction('workspace/setActive'),
+            resetForNewWorkspace: makeAction('workspace/resetForNewWorkspace'),
+        },
+        fetchFieldSemanticType: vi.fn(),
+        dataFormulatorReducer: (state: any = {}) => state,
+    };
+});
 
 vi.mock('../../../../src/app/utils', () => ({
     CONNECTOR_URLS: {

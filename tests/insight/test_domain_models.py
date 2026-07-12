@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from data_formulator.insight.domain import Claim, ClaimType, DatasetVersion, SupportLevel
+from data_formulator.insight.domain import Claim, ClaimType, DatasetProfile, DatasetVersion, SupportLevel
 
 
 def test_dataset_version_rejects_path_traversal():
@@ -41,3 +41,18 @@ def test_unsupported_claim_may_have_no_evidence():
         evidence_refs=[],
     )
     assert claim.evidence_refs == []
+
+
+def test_dataset_profile_rejects_path_traversal_refs():
+    with pytest.raises(ValidationError):
+        DatasetProfile(
+            id="profile_1",
+            workspace_id="ws_1",
+            dataset_id="dataset_1",
+            version_id="version_000",
+            source_content_hash="sha256:abc",
+            file_ref="datasets/dataset_1/versions/version_000.parquet",
+            profile_ref="../outside.json",
+            row_count=0,
+            column_count=0,
+        )

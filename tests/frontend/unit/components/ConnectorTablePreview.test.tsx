@@ -1,16 +1,13 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+
 import { ConnectorTablePreview } from '../../../../src/components/ConnectorTablePreview';
 
 vi.mock('react-i18next', () => ({
     useTranslation: () => ({
         t: (key: string, params?: Record<string, any>) => {
             const map: Record<string, string> = {
-                'connectorPreview.sourceMetadata': 'Source metadata',
-                'connectorPreview.noSourceMetadata': 'No source metadata',
-                'connectorPreview.metadataStatus.synced': 'Synced',
-                'connectorPreview.columnsCount': 'columns',
                 'connectorPreview.colName': 'Column',
                 'connectorPreview.colType': 'Type',
                 'connectorPreview.colDesc': 'Description',
@@ -32,52 +29,44 @@ vi.mock('../../../../src/app/utils', () => ({
     },
 }));
 
-describe('ConnectorTablePreview source metadata', () => {
+describe('ConnectorTablePreview metadata display', () => {
     const baseProps = {
         connectorId: 'warehouse',
         sourceTable: { id: 'orders', name: 'orders' },
         displayName: 'orders',
         columns: [
-            { name: 'order_id', type: 'NUMERIC', description: 'Primary order key', verbose_name: '订单编号' },
+            { name: 'order_id', type: 'NUMERIC', description: 'Primary order key', verbose_name: 'Order ID' },
             { name: 'region', type: 'STRING' },
             { name: 'total', type: 'NUMERIC', description: 'Sum of line items', expression: 'SUM(line_items.amount)' },
         ],
-        sampleRows: [],
+        sampleRows: [{ order_id: 1, region: 'east', total: 12.5 }],
         rowCount: 1,
         loading: false,
         alreadyLoaded: false,
         onLoad: vi.fn(),
     };
 
-    it('shows collapsed metadata header with status and column count', () => {
+    it('shows the table-level metadata description inline', () => {
         render(
             <ConnectorTablePreview
                 {...baseProps}
                 tableDescription="Orders from the warehouse"
-                metadataStatus="synced"
             />,
         );
 
-        expect(screen.getByText('Source metadata')).toBeDefined();
-        expect(screen.getByText('Synced')).toBeDefined();
-        expect(screen.getByText(/3\s+columns/)).toBeDefined();
+        expect(screen.getByText('Orders from the warehouse')).toBeInTheDocument();
+        expect(screen.queryByText('Source metadata')).not.toBeInTheDocument();
     });
 
-    it('expands to show verbose_name and expression in column table', () => {
-        render(
-            <ConnectorTablePreview
-                {...baseProps}
-                metadataStatus="synced"
-            />,
-        );
+    it('exposes column metadata on preview headers', () => {
+        render(<ConnectorTablePreview {...baseProps} />);
 
-        fireEvent.click(screen.getByText('Source metadata'));
+        const orderHeader = screen.getByText('order_id');
+        expect(orderHeader.getAttribute('aria-label')).toContain('Primary order key');
+        expect(orderHeader.getAttribute('aria-label')).toContain('(Order ID)');
 
-        expect(screen.getByText('order_id')).toBeDefined();
-        expect(screen.getByText('(订单编号)')).toBeDefined();
-        expect(screen.getByText('Primary order key')).toBeDefined();
-
-        expect(screen.getByText('total')).toBeDefined();
-        expect(screen.getByText('SUM(line_items.amount)')).toBeDefined();
+        const totalHeader = screen.getByText('total');
+        expect(totalHeader.getAttribute('aria-label')).toContain('Sum of line items');
+        expect(totalHeader.getAttribute('aria-label')).toContain('SUM(line_items.amount)');
     });
 });

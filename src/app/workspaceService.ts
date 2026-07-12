@@ -167,6 +167,7 @@ export async function exportWorkspace(id: string): Promise<Blob> {
                 'dataLoaderConnectParams', 'identity', 'serverConfig',
                 'chartSynthesisInProgress', 'chartInsightInProgress',
                 'cleanInProgress', 'sessionLoading', 'sessionLoadingLabel',
+                'insight',
             ]);
             const serializable: Record<string, unknown> = {};
             for (const [key, value] of Object.entries(state)) {

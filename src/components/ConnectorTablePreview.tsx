@@ -568,7 +568,14 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
                         showIndex
                         autoWidth
                         columnDescriptions={columns.reduce<Record<string, string>>((acc, c) => {
-                            if (c.description) acc[c.name] = c.description;
+                            const details = [
+                                c.description,
+                                c.verbose_name ? `(${c.verbose_name})` : undefined,
+                                c.expression,
+                            ].filter((value): value is string => Boolean(value));
+                            if (details.length > 0) {
+                                acc[c.name] = details.join('\n');
+                            }
                             return acc;
                         }, {})}
                     />

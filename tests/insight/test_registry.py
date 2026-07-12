@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from pathlib import Path
 
 import pandas as pd
@@ -14,16 +15,32 @@ from data_formulator.insight.registry import (
 from data_formulator.insight.storage import LocalInsightStore
 
 
+@contextmanager
+def _spy_lock(call_log: list[str]):
+    call_log.append("entered")
+    yield
+
+
 def test_ensure_project_is_idempotent(tmp_path: Path):
     store = LocalInsightStore(tmp_path)
 
-    first = ensure_project(store, workspace_id="workspace_1", name="销售分析")
+    first = ensure_project(store, workspace_id="workspace_1", name="Sales Analysis")
     second = ensure_project(store, workspace_id="workspace_1", name="Ignored")
 
     assert first.created is True
     assert second.created is False
     assert second.project.id == first.project.id
-    assert second.project.name == "销售分析"
+    assert second.project.name == "Sales Analysis"
+
+
+def test_ensure_project_uses_workspace_lock(tmp_path: Path, monkeypatch):
+    store = LocalInsightStore(tmp_path)
+    calls: list[str] = []
+    monkeypatch.setattr(store, "workspace_lock", lambda timeout=None: _spy_lock(calls))
+
+    ensure_project(store, workspace_id="workspace_1", name="Sales Analysis")
+
+    assert calls == ["entered"]
 
 
 def test_register_dataset_creates_immutable_version_zero(tmp_path: Path):
@@ -37,7 +54,7 @@ def test_register_dataset_creates_immutable_version_zero(tmp_path: Path):
         original_table_ref="sales_raw",
         dataset_name="Sales Raw",
         dataset_id="dataset_sales",
-        project_name="经营分析",
+        project_name="Business Insight",
     )
 
     assert registration.dataset.original_version_id == VERSION_ZERO_ID
@@ -53,6 +70,23 @@ def test_register_dataset_creates_immutable_version_zero(tmp_path: Path):
 
     loaded = store.read_parquet(registration.version.file_ref)
     pd.testing.assert_frame_equal(loaded, df)
+
+
+def test_register_dataset_uses_workspace_lock(tmp_path: Path, monkeypatch):
+    store = LocalInsightStore(tmp_path)
+    df = pd.DataFrame({"sales": [10]})
+    calls: list[str] = []
+    monkeypatch.setattr(store, "workspace_lock", lambda timeout=None: _spy_lock(calls))
+
+    register_dataset_version_zero(
+        store,
+        workspace_id="workspace_1",
+        dataframe=df,
+        original_table_ref="sales_raw",
+        dataset_id="dataset_sales",
+    )
+
+    assert calls == ["entered"]
 
 
 def test_register_dataset_refuses_to_overwrite_version_zero(tmp_path: Path):
@@ -101,5 +135,5 @@ def test_register_dataset_rolls_back_when_project_write_fails(tmp_path: Path, mo
             dataset_id="dataset_sales",
         )
 
-    assert store.list_files("datasets") == []
+    assert list(store.list("datasets")) == []
     assert not store.exists("project.json")

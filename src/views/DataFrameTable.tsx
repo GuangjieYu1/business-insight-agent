@@ -127,16 +127,23 @@ export const DataFrameTable: React.FC<DataFrameTableProps> = ({
                         )}
                         {displayCols.map((col, i) => {
                             const desc = col !== '\u2026' ? columnDescriptions?.[col] : undefined;
+                            const headerCell = (
+                                <Typography component="th" variant="caption"
+                                    title={desc ? undefined : col}
+                                    sx={{ fontWeight: 600, fontSize: headerFontSize,
+                                        ...(desc ? { cursor: 'help', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 2 } : {}),
+                                    }}>
+                                    {col}
+                                </Typography>
+                            );
+
+                            if (!desc) {
+                                return React.cloneElement(headerCell, { key: i });
+                            }
+
                             return (
-                                <Tooltip key={i} title={desc || ''} placement="top"
-                                    enterDelay={400} disableHoverListener={!desc}>
-                                    <Typography component="th" variant="caption"
-                                        title={desc ? undefined : col}
-                                        sx={{ fontWeight: 600, fontSize: headerFontSize,
-                                            ...(desc ? { cursor: 'help', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 2 } : {}),
-                                        }}>
-                                        {col}
-                                    </Typography>
+                                <Tooltip key={i} title={desc} placement="top" enterDelay={400}>
+                                    {headerCell}
                                 </Tooltip>
                             );
                         })}

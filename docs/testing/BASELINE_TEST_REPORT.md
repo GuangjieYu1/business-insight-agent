@@ -2,121 +2,155 @@
 
 Baseline date: 2026-07-12
 
-## Environment
+## Scope
 
-- Branch: `develop`
-- Upstream baseline: `upstream/main` at `00d0f5e1655e2a5bb02fda289f73960bbac62027`
-- Python: 3.11.15
-- Node: 24.16.0
-- Package manager notes:
-  - `uv sync` could not run because `uv` is not installed in this environment.
-  - Backend dependencies were installed with a local `.venv` fallback: `python -m venv .venv && .venv/bin/python -m pip install -e . pytest`.
-  - `yarn` was provided through Corepack as Yarn 1.22.22.
-  - `corepack yarn install --frozen-lockfile` failed because the lockfile needs an update.
-  - `corepack yarn install --pure-lockfile` completed without modifying `yarn.lock`.
+This report records the validated Phase 4 Business Insight baseline after merging:
 
-## Backend Baseline
+- PR #4: deterministic dataset profiling hardening
+- PR #5: profiling display, dataset versioning, and cleaning proposals
+- PR #6: reversible cleaning operations
+- PR #7: cleaning workspace UI
+- PR #8: `main` history synchronization into `develop`
 
-Command:
+The Phase 4 product path now covers immutable dataset registration, deterministic profiling, cleaning proposals, privacy-safe Preview, approval-driven Apply, new dataset versions, version history, and Undo.
 
-```bash
-.venv/bin/python -m pytest
-```
+## Supported environment
 
-Result:
+GitHub Actions uses:
 
-- 1900 passed
-- 12 skipped
-- 1 xpassed
-- 2 failed
-- 3 errors
-- 16 warnings
+- Ubuntu hosted runner
+- Node setup through `actions/setup-node`
+- Python environment through `uv`
+- Yarn dependencies from the repository lockfile
 
-Failures and errors:
-
-- `tests/backend/data/test_all_loader_verification.py::TestStaticMethods::test_all_loaders_have_list_params`
-- `tests/backend/data/test_all_loader_verification.py::TestStaticMethods::test_all_loaders_have_required_host_or_identifier`
-- Both failures assert that `sample_datasets` must expose required connection parameters.
-- `tests/backend/data/test_sync_catalog_cross_db.py::TestMSSQLSyncCatalogMetadata::*`
-- The three MSSQL errors fail while importing `pyodbc` because the host is missing `libodbc.so.2`.
-
-## Business Insight Backend Tests
-
-Command:
+Local development commands remain:
 
 ```bash
-.venv/bin/python -m pytest tests/insight -q
+uv sync
+yarn
+uv run data_formulator --dev --product-mode business_insight
+yarn start
 ```
 
-Result:
+## CI validation commands
 
-- 9 passed
-
-## Frontend Baseline
-
-Install command:
+### Business Insight backend
 
 ```bash
-corepack yarn install --pure-lockfile
+uv run pytest tests/insight -q
 ```
 
-Result:
+Coverage includes:
 
-- Completed in 74.49s
-- Warnings: peer dependency warnings for MUI, TipTap, gofish, Vega packages, plus Node `url.parse()` deprecation warning.
+- product mode and health routing
+- workspace boundaries and storage contracts
+- project and dataset registration
+- immutable `version_000`
+- dataset version creation, activation, branching, history, rollback, and Undo
+- deterministic profiling, resource limits, redaction, and detector coverage
+- deterministic cleaning proposal generation
+- cleaning operation parameter validation
+- privacy-safe Preview
+- approval and rejection state transitions
+- Apply idempotency
+- stale-version rejection
+- concurrent Apply serialization
+- route-level reversible-cleaning behavior
 
-Test command:
+### Existing Insight frontend
 
 ```bash
-corepack yarn test
+yarn vitest run \
+  tests/frontend/productConfig.test.ts \
+  tests/frontend/unit/insight/InsightWorkspacePane.test.tsx \
+  tests/frontend/unit/insight/insightClient.test.ts \
+  tests/frontend/unit/insight/profilingSlice.test.ts
 ```
 
-Result:
-
-- 27 test files passed
-- 5 test files failed
-- 251 tests passed
-- 12 tests failed
-- 1 suite failed during setup
-
-Failing areas:
-
-- `tests/frontend/unit/views/DataSourceSidebar.test.tsx` mock is missing `dataFormulatorReducer`.
-- `tests/frontend/unit/app/agentMetadataTimeout.test.ts` expects a `configured` status while the reducer returns `unknown`.
-- `tests/frontend/unit/app/getAccessToken.test.ts` token refresh expectations return `null`.
-- `tests/frontend/unit/components/ConnectorTablePreview.test.tsx` cannot find the expected source metadata text.
-- `tests/frontend/unit/app/IdentityMigrationDialog.test.tsx` renders an empty dialog body in several cases.
-
-## Business Insight Frontend Test
-
-Command:
+### Cleaning API client
 
 ```bash
-corepack yarn vitest run tests/frontend/productConfig.test.ts
+yarn vitest run tests/frontend/unit/insight/cleaningClient.test.ts
 ```
 
-Result:
-
-- 1 test file passed
-- 2 tests passed
-
-## Frontend Build
-
-Command:
+### Cleaning workspace panel
 
 ```bash
-corepack yarn build
+yarn vitest run tests/frontend/unit/insight/CleaningWorkspacePanel.test.tsx
 ```
 
-Result:
+### Production builds
 
-- Passed
-- Warnings:
-  - `perf_hooks` externalized for browser compatibility through TypeScript.
-  - `vm-browserify` uses `eval`.
-  - Some dynamic imports are also statically imported and cannot move into separate chunks.
-  - Several chunks exceed the configured 1000 kB warning threshold.
+```bash
+yarn build
+uv build
+```
+
+The workflow also archives the production artifacts. PyPI publishing is skipped for pull-request runs.
+
+## Latest validated runs
+
+### Reversible cleaning backend
+
+GitHub Actions run `29187495048` completed successfully for commit `ed31e64b4da82b457e1a0ca0114c4e00f1e25863`.
+
+Successful gates:
+
+- Business Insight backend tests
+- Business Insight frontend tests
+- frontend production build
+- Python artifact build
+- production artifact archive
+
+### Cleaning workspace UI
+
+GitHub Actions run `29187880062` completed successfully for commit `dcaa7bb515c6fa72d553d38b93fb3d9ebc14f1d3`.
+
+Successful gates:
+
+- Business Insight backend tests
+- existing Insight frontend tests
+- cleaning API client tests
+- cleaning workspace panel tests
+- frontend production build
+- Python artifact build
+- production artifact archive
+
+## Manual review coverage
+
+The merged Phase 4 pull requests were reviewed for:
+
+- whitelist-only operation execution
+- preservation of immutable source versions
+- absence of raw before/after values in Preview responses
+- explicit approval before Apply
+- deterministic and idempotent execution
+- stale and concurrent execution protection
+- frontend request lifecycle safety
+- parity between backend detector types and bilingual frontend labels
+- bounded PR scope and no new third-party runtime dependencies
+
+## Known limitations
+
+- Profiling and proposal generation still default to `version_000`.
+- Successful Apply does not yet automatically profile the output version.
+- The frontend does not yet provide persistent Operation history after refresh.
+- Higher-risk cast, imputation, and row-filter operations remain disabled.
+- Profile and proposal generation remain synchronous HTTP operations.
+- A real browser smoke test is still required before the Phase 4 release is merged into `main`; repository CI validates code and builds but does not exercise the complete user journey in a running browser.
 
 ## Conclusion
 
-The Phase 0 Business Insight additions pass their focused backend and frontend tests, and the production frontend build succeeds. The full upstream pytest and Vitest baselines are not clean in this host environment; failures are recorded above and should be triaged separately from Phase 0 product-mode and Insight foundation work.
+The automated Phase 4 baseline is green. The repository is ready for a `develop` to `main` release pull request after documentation review and a real-browser smoke test of:
+
+```text
+select table
+→ open Data Profile
+→ open Cleaning Suggestions
+→ Preview
+→ Approve
+→ Apply
+→ observe version_001
+→ Undo
+→ return to version_000
+```
