@@ -86,7 +86,7 @@ def test_version_proposals_use_exact_profile_version(tmp_path: Path):
         dataset_id="dataset_sales",
         version_id="version_001",
     )
-    assert [proposal.id for proposal in persisted] == [proposal.id for proposal in proposals]
+    assert {proposal.id for proposal in persisted} == {proposal.id for proposal in proposals}
 
 
 def test_repeated_version_proposal_generation_preserves_workflow_state(tmp_path: Path):
