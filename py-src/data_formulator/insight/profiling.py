@@ -32,7 +32,7 @@ from data_formulator.insight.registry import (
     read_dataset,
     read_dataset_version_zero,
 )
-from data_formulator.insight.storage import LocalInsightStore
+from data_formulator.insight.storage import InsightStore
 
 NEAR_CONSTANT_THRESHOLD = 0.95
 HIGH_MISSING_THRESHOLD = 0.50
@@ -40,8 +40,11 @@ TOP_VALUE_LIMIT = 5
 TOP_VALUE_MAX_STRING_LENGTH = 64
 HIGH_CARDINALITY_MIN_DISTINCT = 100
 HIGH_CARDINALITY_RATIO = 0.80
+ID_LIKE_RATIO = 0.98
+ID_LIKE_MIN_DISTINCT = 20
+OUTLIER_MIN_ROWS = 8
 SENSITIVE_VALUE_SAMPLE_LIMIT = 100
-PROFILER_VERSION = "dataset-profiler-v1"
+PROFILER_VERSION = "dataset-profiler-v2"
 SAMPLE_POLICY = "disabled"
 CANONICAL_PROFILE_TIMESTAMP = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
@@ -79,7 +82,10 @@ PROFILE_CONFIGURATION = {
     "high_missing_threshold": HIGH_MISSING_THRESHOLD,
     "high_cardinality_min_distinct": HIGH_CARDINALITY_MIN_DISTINCT,
     "high_cardinality_ratio": HIGH_CARDINALITY_RATIO,
+    "id_like_ratio": ID_LIKE_RATIO,
+    "id_like_min_distinct": ID_LIKE_MIN_DISTINCT,
     "near_constant_threshold": NEAR_CONSTANT_THRESHOLD,
+    "outlier_min_rows": OUTLIER_MIN_ROWS,
     "sample_policy": SAMPLE_POLICY,
     "sensitive_value_sample_limit": SENSITIVE_VALUE_SAMPLE_LIMIT,
     "top_value_limit": TOP_VALUE_LIMIT,
@@ -92,14 +98,14 @@ PROFILE_CONFIGURATION_HASH = "sha256:" + hashlib.sha256(
 SENSITIVE_COLUMN_NAME_RE = re.compile(
     r"(^|[_\-\s])(?:id|identifier|ssn|sin|email|e-mail|phone|mobile|tel|"
     r"name|full_name|address|addr|contact|customer|client|account|remark|comment|note)([_\-\s]|$)|"
-    r"(身份证|手机号|手机|电话|邮箱|姓名|名字|地址|客户|联系人|备注|订单备注)",
+    r"(濮撳悕|鍦板潃|鐢佃瘽|鎵嬫満鍙穦閭|韬唤璇亅瀹㈡埛|璐﹀彿|澶囨敞)",
     re.IGNORECASE,
 )
 EMAIL_VALUE_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 ID_VALUE_RE = re.compile(r"^\d{15}$|^\d{17}[\dXx]$")
 
 _DATE_HINT_RE = re.compile(
-    r"(\d{1,4}[-/]\d{1,2})|(\d{1,2}[-/]\d{1,4})|(\d{1,2}:\d{2})|[年月日]|"
+    r"(\d{1,4}[-/]\d{1,2})|(\d{1,2}[-/]\d{1,4})|(\d{1,2}:\d{2})|[骞存湀鏃ユ椂鍒嗙]|"
     r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b",
     re.IGNORECASE,
 )
@@ -167,7 +173,7 @@ def _validate_dataframe_limits(dataframe: pd.DataFrame, limits: ProfileLimits) -
         )
 
 
-def _validate_source_limits(store: LocalInsightStore, file_ref: str, limits: ProfileLimits) -> None:
+def _validate_source_limits(store: InsightStore, file_ref: str, limits: ProfileLimits) -> None:
     file_size = store.file_size(file_ref)
     if file_size > limits.max_file_bytes:
         raise InsightProfileError(
@@ -290,6 +296,108 @@ def _is_high_cardinality(*, non_null_count: int, distinct_count: int) -> bool:
     )
 
 
+def _is_invalid_header(column_name: str) -> bool:
+    normalized = column_name.strip()
+    if normalized == "":
+        return True
+    lowered = normalized.lower()
+    return lowered.startswith("unnamed") or normalized in {"-", "_", "?", "..."}
+
+
+def _is_meaningless_header_candidate(column_name: str) -> bool:
+    normalized = column_name.strip().lower()
+    if _is_invalid_header(column_name):
+        return False
+    return bool(
+        re.fullmatch(
+            r"(?:col(?:umn)?[_-]?[a-z0-9]+|field[_-]?\d+|var[_-]?\d+|x\d+|[a-z]\d*|\d+)",
+            normalized,
+        )
+    )
+
+
+def _is_id_like_high_cardinality(
+    *,
+    column_name: str,
+    series: pd.Series,
+    non_null_count: int,
+    distinct_count: int,
+) -> bool:
+    if non_null_count == 0 or distinct_count < ID_LIKE_MIN_DISTINCT:
+        return False
+    distinct_ratio = distinct_count / non_null_count
+    if distinct_ratio < ID_LIKE_RATIO:
+        return False
+    if re.search(r"(^|[_\-\s])(?:id|code|key|uuid|guid|number|no)([_\-\s]|$)", column_name, re.IGNORECASE):
+        return True
+
+    samples = series.dropna().head(100).map(lambda value: str(value).strip())
+    if len(samples) == 0:
+        return False
+    identifier_like = int(samples.map(lambda value: bool(re.fullmatch(r"[A-Za-z0-9_-]{4,64}", value))).sum())
+    return (identifier_like / len(samples)) >= 0.90
+
+
+def _dirty_character_count(series: pd.Series) -> int:
+    values = series.dropna().map(lambda value: str(value))
+    if len(values) == 0:
+        return 0
+    return int(values.map(lambda value: bool(re.search(r"[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFD]", value))).sum())
+
+
+def _whitespace_pollution_count(series: pd.Series) -> int:
+    values = series.dropna().map(lambda value: str(value))
+    if len(values) == 0:
+        return 0
+    return int(values.map(lambda value: bool(re.search(r"(^\s)|(\s$)|[\t\r\n]", value))).sum())
+
+
+def _infinite_value_count(series: pd.Series) -> int:
+    numeric = pd.to_numeric(series, errors="coerce")
+    values = numeric.to_numpy(dtype=float, na_value=np.nan)
+    return int(np.isinf(values).sum())
+
+
+def _outlier_stats(series: pd.Series) -> tuple[int, float]:
+    numeric = pd.to_numeric(series, errors="coerce")
+    finite = numeric[np.isfinite(numeric)]
+    if int(finite.notna().sum()) < OUTLIER_MIN_ROWS:
+        return 0, 0.0
+
+    q1 = float(finite.quantile(0.25))
+    q3 = float(finite.quantile(0.75))
+    iqr = q3 - q1
+    if not math.isfinite(iqr) or iqr <= 0:
+        return 0, 0.0
+
+    lower = q1 - (1.5 * iqr)
+    upper = q3 + (1.5 * iqr)
+    mask = (finite < lower) | (finite > upper)
+    outlier_count = int(mask.sum())
+    outlier_ratio = outlier_count / int(len(finite)) if len(finite) else 0.0
+    return outlier_count, outlier_ratio
+
+
+def _duplicate_column_pairs(dataframe: pd.DataFrame) -> list[tuple[str, str]]:
+    seen: dict[str, str] = {}
+    duplicates: list[tuple[str, str]] = []
+    for column in dataframe.columns:
+        column_name = str(column)
+        serialized = json.dumps(
+            [_jsonable(value) for value in dataframe[column].tolist()],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        fingerprint = hashlib.sha256(
+            f"{dataframe[column].dtype}|{serialized}".encode("utf-8")
+        ).hexdigest()
+        if fingerprint in seen:
+            duplicates.append((seen[fingerprint], column_name))
+        else:
+            seen[fingerprint] = column_name
+    return duplicates
+
+
 def _value_storage_policy(
     *,
     column_name: str,
@@ -356,12 +464,40 @@ def _column_issues(
     null_count: int,
     null_ratio: float,
     distinct_count: int,
+    distinct_ratio: float,
     top_count: int,
     python_types: list[str],
     numeric_stats: _ParseStats,
     datetime_stats: _ParseStats,
+    dirty_character_count: int,
+    whitespace_pollution_count: int,
+    infinite_value_count: int,
+    outlier_count: int,
+    outlier_ratio: float,
+    id_like_high_cardinality: bool,
 ) -> list[ProfileQualityIssue]:
     issues: list[ProfileQualityIssue] = []
+
+    if _is_invalid_header(column_name):
+        issues.append(
+            ProfileQualityIssue(
+                issue_type="invalid_header",
+                severity=Severity.MEDIUM,
+                scope={"column": column_name},
+                metrics={"header": column_name},
+                message=f"Column '{column_name}' has an invalid or placeholder-style header.",
+            )
+        )
+    elif _is_meaningless_header_candidate(column_name):
+        issues.append(
+            ProfileQualityIssue(
+                issue_type="meaningless_header_candidate",
+                severity=Severity.LOW,
+                scope={"column": column_name},
+                metrics={"header": column_name},
+                message=f"Column '{column_name}' may need a clearer business-facing header.",
+            )
+        )
 
     if non_null_count == 0:
         issues.append(
@@ -449,6 +585,61 @@ def _column_issues(
             )
         )
 
+    if dirty_character_count > 0:
+        issues.append(
+            ProfileQualityIssue(
+                issue_type="dirty_character_column",
+                severity=Severity.MEDIUM,
+                scope={"column": column_name},
+                metrics={"dirty_character_count": dirty_character_count},
+                message=f"Column '{column_name}' contains control or replacement characters.",
+            )
+        )
+
+    if whitespace_pollution_count > 0:
+        issues.append(
+            ProfileQualityIssue(
+                issue_type="whitespace_pollution",
+                severity=Severity.LOW,
+                scope={"column": column_name},
+                metrics={"whitespace_pollution_count": whitespace_pollution_count},
+                message=f"Column '{column_name}' contains leading, trailing, or embedded control whitespace.",
+            )
+        )
+
+    if infinite_value_count > 0:
+        issues.append(
+            ProfileQualityIssue(
+                issue_type="infinite_value",
+                severity=Severity.HIGH,
+                scope={"column": column_name},
+                metrics={"infinite_value_count": infinite_value_count},
+                message=f"Column '{column_name}' contains infinite numeric values.",
+            )
+        )
+
+    if outlier_count > 0:
+        issues.append(
+            ProfileQualityIssue(
+                issue_type="outlier_warning",
+                severity=Severity.MEDIUM if outlier_ratio >= 0.10 else Severity.LOW,
+                scope={"column": column_name},
+                metrics={"outlier_count": outlier_count, "outlier_ratio": outlier_ratio},
+                message=f"Column '{column_name}' contains statistical outliers that may need review.",
+            )
+        )
+
+    if id_like_high_cardinality:
+        issues.append(
+            ProfileQualityIssue(
+                issue_type="high_cardinality_id_like",
+                severity=Severity.LOW,
+                scope={"column": column_name},
+                metrics={"distinct_count": distinct_count, "distinct_ratio": distinct_ratio},
+                message=f"Column '{column_name}' looks like an identifier or key column.",
+            )
+        )
+
     return issues
 
 
@@ -490,6 +681,7 @@ def profile_dataframe(
     columns: list[ColumnProfile] = []
     profile_redaction_applied = False
     profile_sensitive_data_detected = False
+    column_issue_type_additions: dict[str, list[str]] = {str(column): [] for column in dataframe.columns}
 
     if duplicate_excess_row_count > 0:
         quality_issues.append(
@@ -508,6 +700,20 @@ def profile_dataframe(
                 message="The dataset contains duplicate rows.",
             )
         )
+
+    for primary_column, duplicate_column in _duplicate_column_pairs(dataframe):
+        quality_issues.append(
+            ProfileQualityIssue(
+                issue_type="duplicate_columns",
+                severity=Severity.MEDIUM,
+                scope={"column": duplicate_column, "duplicate_of": primary_column},
+                metrics={"row_count": row_count},
+                message=f"Column '{duplicate_column}' duplicates the values in '{primary_column}'.",
+            )
+        )
+        for column_name in (primary_column, duplicate_column):
+            if "duplicate_columns" not in column_issue_type_additions[column_name]:
+                column_issue_type_additions[column_name].append("duplicate_columns")
 
     for column in dataframe.columns:
         _check_deadline(deadline)
@@ -540,6 +746,16 @@ def profile_dataframe(
         python_types = _python_types(series)
         numeric_stats = _numeric_parse_stats(series)
         datetime_stats = _datetime_parse_stats(series)
+        dirty_character_count = _dirty_character_count(series)
+        whitespace_pollution_count = _whitespace_pollution_count(series)
+        infinite_value_count = _infinite_value_count(series)
+        outlier_count, outlier_ratio = _outlier_stats(series)
+        id_like_high_cardinality = _is_id_like_high_cardinality(
+            column_name=column_name,
+            series=series,
+            non_null_count=non_null_count,
+            distinct_count=distinct_count,
+        )
         column_issues = _column_issues(
             column_name=column_name,
             row_count=row_count,
@@ -547,12 +763,23 @@ def profile_dataframe(
             null_count=null_count,
             null_ratio=null_ratio,
             distinct_count=distinct_count,
+            distinct_ratio=distinct_ratio,
             top_count=top_count,
             python_types=python_types,
             numeric_stats=numeric_stats,
             datetime_stats=datetime_stats,
+            dirty_character_count=dirty_character_count,
+            whitespace_pollution_count=whitespace_pollution_count,
+            infinite_value_count=infinite_value_count,
+            outlier_count=outlier_count,
+            outlier_ratio=outlier_ratio,
+            id_like_high_cardinality=id_like_high_cardinality,
         )
         quality_issues.extend(column_issues)
+        quality_issue_types = [issue.issue_type for issue in column_issues]
+        for extra_issue_type in column_issue_type_additions.get(column_name, []):
+            if extra_issue_type not in quality_issue_types:
+                quality_issue_types.append(extra_issue_type)
         columns.append(
             ColumnProfile(
                 name=column_name,
@@ -580,7 +807,7 @@ def profile_dataframe(
                 numeric_parse_conflict_count=numeric_stats.conflict_count,
                 datetime_parseable_count=datetime_stats.parseable_count,
                 datetime_parse_conflict_count=datetime_stats.conflict_count,
-                quality_issue_types=[issue.issue_type for issue in column_issues],
+                quality_issue_types=quality_issue_types,
             )
         )
         _check_deadline(deadline)
@@ -652,7 +879,7 @@ def _matches_current_profile(
 
 
 def generate_dataset_profile(
-    store: LocalInsightStore,
+    store: InsightStore,
     *,
     workspace_id: str,
     dataset_id: str,
@@ -718,7 +945,7 @@ def generate_dataset_profile(
 
 
 def read_dataset_profile(
-    store: LocalInsightStore,
+    store: InsightStore,
     *,
     dataset_id: str,
     version_id: str = VERSION_ZERO_ID,

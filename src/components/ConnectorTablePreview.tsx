@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 /**
- * ConnectorTablePreview — unified preview panel for connector tables.
+ * ConnectorTablePreview 閳?unified preview panel for connector tables.
  *
  * Used in both:
  *  - DataSourceSidebar (Popover preview when clicking a dataset)
@@ -35,7 +35,7 @@ import { DataFrameTable } from '../views/DataFrameTable';
 import { fetchWithIdentity, CONNECTOR_ACTION_URLS, SourceTableRef } from '../app/utils';
 import { apiRequest } from '../app/apiClient';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// 閳光偓閳光偓閳光偓 Types 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
 
 export interface ColumnMeta {
     name: string;
@@ -90,7 +90,7 @@ export interface ConnectorTablePreviewProps {
     onRefreshPreview?: (rows: Record<string, any>[], columns: ColumnMeta[], rowCount: number | null) => void;
 }
 
-// ─── Filter helpers (pure functions) ─────────────────────────────────────────
+// 閳光偓閳光偓閳光偓 Filter helpers (pure functions) 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
 
 export function inferInputType(pandasType: string, sourceType?: string): 'time' | 'numeric' | 'boolean' | 'select' | 'text' {
     const src = (sourceType || '').toUpperCase();
@@ -139,7 +139,7 @@ export function coerceFilters(filters: PreviewFilter[], columns: ColumnMeta[]): 
         });
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// 閳光偓閳光偓閳光偓 Component 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
 
 export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
     connectorId,
@@ -174,10 +174,10 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
     const effectiveDesc = (tableDescription || sourceDescription || '').trim();
     // Source-metadata row only renders the table-level description.
     // Per-column metadata is exposed as header tooltips on the preview table
-    // (DataFrameTable.columnDescriptions) — see design-docs/23-table-description-unification.md.
+    // (DataFrameTable.columnDescriptions) 閳?see design-docs/23-table-description-unification.md.
     const hasMetadataRow = Boolean(effectiveDesc);
 
-    // ── Operator definitions ─────────────────────────────────────────────
+    // 閳光偓閳光偓 Operator definitions 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
 
     const getOperatorsForType = useCallback((inputType: string) => {
         switch (inputType) {
@@ -227,7 +227,7 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
         }
     }, [t]);
 
-    // ── Autocomplete values ──────────────────────────────────────────────
+    // 閳光偓閳光偓 Autocomplete values 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
 
     const loadFilterOptions = useCallback(async (columnName: string, keyword = '') => {
         const cacheKey = `${connectorId}:${sourceTable.id}:${columnName}`;
@@ -251,7 +251,7 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
         }
     }, [connectorId, sourceTable]);
 
-    // ── Refresh preview with filters ─────────────────────────────────────
+    // 閳光偓閳光偓 Refresh preview with filters 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
 
     const handleRefreshPreview = useCallback(() => {
         const validFilters = coerceFilters(filters, columns);
@@ -276,7 +276,7 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
             .finally(() => setRefreshing(false));
     }, [filters, columns, connectorId, sourceTable, onRefreshPreview]);
 
-    // ── Load handler ─────────────────────────────────────────────────────
+    // 閳光偓閳光偓 Load handler 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
 
     const handleLoad = useCallback(() => {
         const opts: Record<string, any> = {};
@@ -297,14 +297,14 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
         onLoadInNewSession(opts);
     }, [filters, columns, onLoadInNewSession]);
 
-    // ── Shared styles ────────────────────────────────────────────────────
+    // 閳光偓閳光偓 Shared styles 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
 
     const inputSx = {
         '& .MuiInputBase-root': { fontSize: 11, height: 26 },
         '& .MuiInputBase-input': { py: 0.25, px: 0.75 },
     };
 
-    // ── Render value control for a filter row ────────────────────────────
+    // 閳光偓閳光偓 Render value control for a filter row 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
 
     const renderValueControl = (f: PreviewFilter, idx: number, inputType: string) => {
         const noValue = f.operator === 'IS_NULL' || f.operator === 'IS_NOT_NULL';
@@ -325,7 +325,7 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
                     sx={{ width: 110, ...inputSx }}
                     slotProps={{ select: { displayEmpty: true } }}
                 >
-                    <MenuItem value="" sx={{ fontSize: 11, color: 'text.disabled' }}><em>—</em></MenuItem>
+                    <MenuItem value="" sx={{ fontSize: 11, color: 'text.disabled' }}><em>-</em></MenuItem>
                     <MenuItem value="true" sx={{ fontSize: 11 }}>True</MenuItem>
                     <MenuItem value="false" sx={{ fontSize: 11 }}>False</MenuItem>
                 </TextField>
@@ -431,11 +431,11 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
         );
     };
 
-    // ── JSX ──────────────────────────────────────────────────────────────
+    // 閳光偓閳光偓 JSX 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
 
     return (
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-            {/* Header — name + row count */}
+            {/* Header 閳?name + row count */}
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 0.5, flexShrink: 0 }}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography sx={{ fontSize: 14, fontWeight: 600 }} noWrap>{displayName}</Typography>
@@ -443,7 +443,7 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
                         <Typography sx={{ fontSize: 11, color: 'text.disabled' }} noWrap>{pathBreadcrumb}</Typography>
                     )}
                     {(() => {
-                        // Row-count line — ALWAYS rendered as a single
+                        // Row-count line 閳?ALWAYS rendered as a single
                         // `Typography` so the header height is identical
                         // across loading/loaded states and across tables
                         // (no wrap, no conditional rendering, no visibility
@@ -456,7 +456,7 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
                         //   - the sample is shorter than the preview cap
                         //     of 10 (we exhausted the table).
                         // Otherwise we fall back to the "Preview shows
-                        // first N rows" notice, or — during loading — a
+                        // first N rows" notice, or 閳?during loading 閳?a
                         // hidden non-breaking space placeholder that
                         // reserves the same line height.
                         const PREVIEW_CAP = 10;
@@ -528,17 +528,17 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
                 </Box>
             )}
 
-            {/* Preview table — uses a *fixed* height (not minHeight) so the
+            {/* Preview table 閳?uses a *fixed* height (not minHeight) so the
                 section is identical across all tables and across the
-                loading→loaded transition. The value (290px) covers the
+                loading閳姡oaded transition. The value (290px) covers the
                 worst case: 10 compact rows (~220) + header (~22) + the
-                "…" continuation row that DataFrameTable renders when the
+                "閳? continuation row that DataFrameTable renders when the
                 full table exceeds 10 rows (~22) + horizontal scrollbar
                 lane for wide tables (~15) + cell borders (~6).
 
                 Overflow is *horizontal only*: content is intrinsically
-                capped at 10 rows + header + "…" row, so a vertical
-                scrollbar would never represent real overflow — it would
+                capped at 10 rows + header + "閳? row, so a vertical
+                scrollbar would never represent real overflow 閳?it would
                 only appear as a side effect of the horizontal scrollbar
                 eating into the height. `overflowY: hidden` keeps that
                 from happening. */}
@@ -568,7 +568,14 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
                         showIndex
                         autoWidth
                         columnDescriptions={columns.reduce<Record<string, string>>((acc, c) => {
-                            if (c.description) acc[c.name] = c.description;
+                            const details = [
+                                c.description,
+                                c.verbose_name ? `(${c.verbose_name})` : undefined,
+                                c.expression,
+                            ].filter((value): value is string => Boolean(value));
+                            if (details.length > 0) {
+                                acc[c.name] = details.join('\n');
+                            }
                             return acc;
                         }, {})}
                     />
@@ -583,12 +590,12 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
                 )}
             </Box>
 
-            {/* Filter conditions — sits *below* the preview, next to the
+            {/* Filter conditions 閳?sits *below* the preview, next to the
                 Preview-refresh button so editing filters and applying them
                 happen in the same place.
 
                 Rendered as soon as `enableFilters` is on and the table
-                isn't already loaded — we *don't* gate on `columns.length`
+                isn't already loaded 閳?we *don't* gate on `columns.length`
                 so the filter row reserves its own space during loading
                 (otherwise the popover would grow when columns arrive).
                 The Add-filter button is disabled until columns are known
@@ -670,7 +677,7 @@ export const ConnectorTablePreview: React.FC<ConnectorTablePreviewProps> = ({
                 </Box>
             )}
 
-            {/* Footer — load buttons */}
+            {/* Footer 閳?load buttons */}
             <Box sx={{ mt: 1, pt: 1, flexShrink: 0, borderTop: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 1 }}>
                 {alreadyLoaded ? (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

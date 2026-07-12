@@ -1,29 +1,61 @@
 /**
- * Tests for getAccessToken — silent refresh on expired tokens.
+ * Tests for getAccessToken token refresh behavior.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockGetUser = vi.fn();
 const mockSigninSilent = vi.fn();
+const mockAddSilentRenewError = vi.fn();
 
-vi.mock('../../../../src/app/oidcConfig', async (importOriginal) => {
-    const original = await importOriginal<typeof import('../../../../src/app/oidcConfig')>();
-    return {
-        ...original,
-        getUserManager: vi.fn(async () => ({
+vi.mock('oidc-client-ts', () => ({
+    UserManager: vi.fn(function MockUserManager() {
+        return {
             getUser: mockGetUser,
             signinSilent: mockSigninSilent,
-        })),
-    };
-});
+            signinRedirect: vi.fn(),
+            events: {
+                addSilentRenewError: mockAddSilentRenewError,
+            },
+        };
+    }),
+    WebStorageStateStore: vi.fn(),
+    User: class {},
+}));
 
-import { getAccessToken } from '../../../../src/app/oidcConfig';
-
-beforeEach(() => {
-    vi.clearAllMocks();
-});
+import { _resetForTesting, getAccessToken } from '../../../../src/app/oidcConfig';
 
 describe('getAccessToken', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        _resetForTesting();
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue(
+                new Response(
+                    JSON.stringify({
+                        status: 'success',
+                        data: {
+                            action: 'frontend',
+                            oidc: {
+                                authority: 'https://sso.example.test',
+                                clientId: 'client-1',
+                                scopes: 'openid profile email',
+                            },
+                        },
+                    }),
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    },
+                ),
+            ),
+        );
+    });
+
+    afterEach(() => {
+        _resetForTesting();
+        vi.unstubAllGlobals();
+    });
 
     it('returns token when user exists and not expired', async () => {
         mockGetUser.mockResolvedValue({ expired: false, access_token: 'fresh-token' });

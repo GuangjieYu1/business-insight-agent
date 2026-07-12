@@ -2,14 +2,14 @@
 // Licensed under the MIT License.
 
 /**
- * DataFrameTable — compact notebook-style table for data previews.
+ * DataFrameTable 鈥?compact notebook-style table for data previews.
  *
  * Features:
- *  - Monospace font, tight rows — feels like a Jupyter/pandas DataFrame
- *  - Auto-abbreviates wide tables: first N + "…" + last N columns
+ *  - Monospace font, tight rows 鈥?feels like a Jupyter/pandas DataFrame
+ *  - Auto-abbreviates wide tables: first N + "鈥? + last N columns
  *  - Truncates long cell values with ellipsis
- *  - Shows "…" footer row when totalRows > displayed rows
- *  - Zero-dependency on MUI DataGrid — just plain `<table>`
+ *  - Shows "鈥? footer row when totalRows > displayed rows
+ *  - Zero-dependency on MUI DataGrid 鈥?just plain `<table>`
  */
 
 import React from 'react';
@@ -20,11 +20,11 @@ const CODE_FONT = '"SF Mono", "Cascadia Code", "Fira Code", Menlo, Consolas, "Li
 export interface DataFrameTableProps {
     /** Column names */
     columns: string[];
-    /** Row data — array of record objects keyed by column name */
+    /** Row data 鈥?array of record objects keyed by column name */
     rows: Record<string, any>[];
-    /** Total row count (if known). When > rows.length, a "…" row is shown. */
+    /** Total row count (if known). When > rows.length, a "鈥? row is shown. */
     totalRows?: number;
-    /** Max columns before abbreviating with "…" (default 8) */
+    /** Max columns before abbreviating with "鈥? (default 8) */
     maxColumns?: number;
     /** Max visible cell length before truncation (default 24) */
     maxCellLength?: number;
@@ -68,7 +68,7 @@ export const DataFrameTable: React.FC<DataFrameTableProps> = ({
         || totalRows > visibleRows.length
         || (maxRows != null && rows.length > maxRows);
 
-    // Abbreviate columns: first half + … + last half
+    // Abbreviate columns: first half + 鈥?+ last half
     const half = Math.floor(maxColumns / 2);
     const needsColEllipsis = columns.length > maxColumns;
     const displayCols = needsColEllipsis
@@ -87,7 +87,7 @@ export const DataFrameTable: React.FC<DataFrameTableProps> = ({
 
     return (
         <Box>
-            {/* Column list removed — the abbreviated table header is sufficient */}
+            {/* Column list removed 鈥?the abbreviated table header is sufficient */}
             <Box component="table" sx={{
                 borderCollapse: 'separate',
                 borderSpacing: 0,
@@ -127,16 +127,23 @@ export const DataFrameTable: React.FC<DataFrameTableProps> = ({
                         )}
                         {displayCols.map((col, i) => {
                             const desc = col !== '\u2026' ? columnDescriptions?.[col] : undefined;
+                            const headerCell = (
+                                <Typography component="th" variant="caption"
+                                    title={desc ? undefined : col}
+                                    sx={{ fontWeight: 600, fontSize: headerFontSize,
+                                        ...(desc ? { cursor: 'help', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 2 } : {}),
+                                    }}>
+                                    {col}
+                                </Typography>
+                            );
+
+                            if (!desc) {
+                                return React.cloneElement(headerCell, { key: i });
+                            }
+
                             return (
-                                <Tooltip key={i} title={desc || ''} placement="top"
-                                    enterDelay={400} disableHoverListener={!desc}>
-                                    <Typography component="th" variant="caption"
-                                        title={desc ? undefined : col}
-                                        sx={{ fontWeight: 600, fontSize: headerFontSize,
-                                            ...(desc ? { cursor: 'help', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 2 } : {}),
-                                        }}>
-                                        {col}
-                                    </Typography>
+                                <Tooltip key={i} title={desc} placement="top" enterDelay={400}>
+                                    {headerCell}
                                 </Tooltip>
                             );
                         })}
@@ -169,13 +176,13 @@ export const DataFrameTable: React.FC<DataFrameTableProps> = ({
                             {showIndex && (
                                 <Typography component="td" variant="caption"
                                     sx={{ fontSize, color: 'text.disabled', textAlign: 'center' }}>
-                                    ⋯
+                                    鈰?
                                 </Typography>
                             )}
                             {displayCols.map((_, ci) => (
                                 <Typography component="td" key={ci} variant="caption"
                                     sx={{ fontSize, color: 'text.disabled' }}>
-                                    ⋯
+                                    鈰?
                                 </Typography>
                             ))}
                         </tr>
