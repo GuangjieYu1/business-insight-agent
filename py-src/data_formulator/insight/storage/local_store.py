@@ -165,14 +165,35 @@ class LocalInsightStore:
         return f"sha256:{digest.hexdigest()}"
 
     def append_ndjson(self, relative_path: str, payload: BaseModel | dict[str, Any]) -> Path:
+        """Atomically append one JSON object by replacing the complete file.
+
+        Callers that need concurrent append safety must hold ``workspace_lock``.
+        Rewriting is intentionally acceptable for the first-version AgentRun
+        budget, which caps the number of persisted steps.
+        """
+
         target = self._resolve(relative_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         data = payload.model_dump(mode="json") if isinstance(payload, BaseModel) else payload
-        with target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(data, ensure_ascii=False, default=self._json_default))
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        line = (
+            json.dumps(data, ensure_ascii=False, default=self._json_default) + "\n"
+        ).encode("utf-8")
+        existing = target.read_bytes() if target.exists() else b""
+
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+        )
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(existing)
+                handle.write(line)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_name, target)
+        except Exception:
+            with suppress(FileNotFoundError):
+                os.unlink(temp_name)
+            raise
         return target
 
     def read_ndjson(self, relative_path: str) -> list[dict[str, Any]]:
