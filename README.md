@@ -2,25 +2,50 @@
 
 Business Insight Agent is an experimental business-data analysis platform built as an MIT-licensed fork of Microsoft Data Formulator.
 
-This repository keeps the upstream `data_formulator` Python package, existing API prefixes, and core Redux store intact during the early phases so upstream changes remain mergeable. Business Insight functionality is added through product-mode branding, `data_formulator.insight`, `/api/insight`, new documentation, and focused tests.
+This repository keeps the upstream `data_formulator` Python package, existing API prefixes, and core Redux store intact so upstream changes remain mergeable. Business Insight functionality is isolated through product-mode branding, `data_formulator.insight`, `/api/insight`, workspace-scoped storage, new frontend surfaces, and focused tests.
 
 This project is not an official Microsoft product and is not affiliated with or endorsed by Microsoft. The upstream project is <https://github.com/microsoft/data-formulator>.
 
-Current stage: Phase 3B deterministic profiling and cleaning proposal generation, with the Phase 3A profiling display already wired on the frontend. The project now has the Phase 0 product baseline, workspace-scoped Insight domain contracts, the `InsightStore` protocol, workspace-locked local Insight storage, project registration, dataset registration, immutable Dataset Version 0 snapshots, dataset version history/activation/undo/branching APIs, expanded profiling detectors, and deterministic cleaning proposal APIs.
+Current stage: **Phase 4 reversible cleaning workflow complete**. The project now supports project and dataset registration, immutable `version_000` snapshots, dataset version history and activation, deterministic profiling, quality-issue display, deterministic cleaning proposals, privacy-safe Preview, explicit Approve/Reject, idempotent Apply into a new dataset version, concurrency protection, and Undo.
 
-Dataset profiling currently reads `datasets/<dataset_id>/versions/version_000.parquet`, generates `DatasetProfile` and `ColumnProfile` metadata, and saves it at `datasets/<dataset_id>/profiles/version_000.json`. Profile generation is content-idempotent for the same source version, profiler version, and configuration hash. The current deterministic quality checks are `empty_column`, `constant_column`, `near_constant_column`, `high_missing_column`, `duplicate_rows`, `duplicate_columns`, `mixed_type_column`, `numeric_parse_conflict`, `datetime_parse_conflict`, `dirty_character_column`, `high_cardinality_id_like`, `outlier_warning`, `invalid_header`, `meaningless_header_candidate`, `infinite_value`, and `whitespace_pollution`.
+The current end-to-end workflow is:
 
-The first profiling guardrails are intentionally conservative: file size, row count, column count, and timeout limits are enforced before or during synchronous profiling; sample values are disabled by default; suspected sensitive columns and high-cardinality columns do not persist raw `top_values`; and duplicate rows are reported as both duplicate group members and excess duplicate rows.
-
-Focused Business Insight checks:
-
-```bash
-$env:UV_CACHE_DIR = (Join-Path (Get-Location) '.uv-cache')
-uv run pytest tests/insight -q
-npm test
+```text
+register dataset
+→ immutable version_000
+→ deterministic profile
+→ cleaning proposals
+→ privacy-safe preview
+→ approve or reject
+→ apply as a new version
+→ inspect version history
+→ undo
 ```
 
-Quick start for the Business Insight mode:
+Dataset profiling currently defaults to `datasets/<dataset_id>/versions/version_000.parquet`, generates `DatasetProfile` and `ColumnProfile` metadata, and saves it at `datasets/<dataset_id>/profiles/version_000.json`. Profile identity is deterministic for the same source version, profiler version, and configuration hash. The current detector set covers empty, constant, near-constant, high-missing, duplicate rows and columns, mixed types, numeric and datetime parse conflicts, dirty characters, high-cardinality identifier-like columns, outliers, invalid or unclear headers, infinite values, and whitespace pollution.
+
+The first cleaning MVP supports five low-risk whitelist operations:
+
+- `trim_string`
+- `replace_invalid_character`
+- `drop_duplicate_rows`
+- `rename_column`
+- `drop_column`
+
+Preview never persists a new version and never returns raw before/after cell values. Apply requires approval, rejects stale input versions, is idempotent for repeated requests, serializes concurrent proposals targeting the same input version, and preserves immutable source versions.
+
+Focused validation:
+
+```bash
+uv run pytest tests/insight -q
+yarn vitest run tests/frontend/productConfig.test.ts tests/frontend/unit/insight/InsightWorkspacePane.test.tsx tests/frontend/unit/insight/insightClient.test.ts tests/frontend/unit/insight/profilingSlice.test.ts
+yarn vitest run tests/frontend/unit/insight/cleaningClient.test.ts
+yarn vitest run tests/frontend/unit/insight/CleaningWorkspacePanel.test.tsx
+yarn build
+uv build
+```
+
+Quick start for Business Insight mode:
 
 ```bash
 uv sync
@@ -31,9 +56,7 @@ yarn start
 
 For a production bundle, run `yarn build` and then start the backend with `uv run data_formulator --product-mode business_insight`.
 
-Optional integrations planned for later phases include RAGFlow, the Time-Series Forecast Lab adapter, and Hermes MCP. They are not required for the current versioning, profiling, and cleaning-proposal work.
-
-Data safety boundaries: uploaded files stay inside the active Data Formulator workspace; Business Insight data is stored under workspace-scoped Insight storage; canonical dataset changes must go through deterministic operations in later phases; API keys must not be written into workspaces.
+Data safety boundaries: uploaded files remain inside the active Data Formulator workspace; Business Insight data is stored under workspace-scoped Insight storage; canonical changes go through deterministic operation handlers; sensitive and high-cardinality values are redacted from persisted profile samples; API keys must not be written into workspaces.
 
 Current Business Insight APIs:
 
@@ -48,8 +71,14 @@ Current Business Insight APIs:
 - `POST /api/insight/operations/<operation_id>/undo`
 - `GET /api/insight/cleaning/proposals`
 - `POST /api/insight/cleaning/proposals`
+- `POST /api/insight/cleaning/proposals/<proposal_id>/preview`
+- `POST /api/insight/cleaning/proposals/<proposal_id>/approve`
+- `POST /api/insight/cleaning/proposals/<proposal_id>/reject`
+- `POST /api/insight/cleaning/proposals/<proposal_id>/apply`
 - `POST /api/insight/datasets/<dataset_id>/profile`
 - `GET /api/insight/datasets/<dataset_id>/profiles/version_000`
+
+Current limitations and the Phase 5 plan are tracked in [WORKSPACE_STATUS.md](WORKSPACE_STATUS.md). The next target is multi-version profiling, output-version proposal regeneration, before/after comparison, and persistent Operation history in the frontend.
 
 ## Upstream Data Formulator README
 
