@@ -27,6 +27,15 @@ export type InferredColumnType =
     | 'mixed'
     | 'unknown';
 
+export type CleaningProposalStatus = 'pending' | 'approved' | 'rejected' | 'applied';
+export type CleaningOperationStatus = 'previewed' | 'running' | 'completed' | 'failed' | 'undone';
+export type SupportedCleaningOperation =
+    | 'trim_string'
+    | 'replace_invalid_character'
+    | 'drop_duplicate_rows'
+    | 'rename_column'
+    | 'drop_column';
+
 export interface InsightEntityBase {
     id: string;
     schema_version: string;
@@ -115,6 +124,69 @@ export interface DatasetProfile extends InsightEntityBase {
     sensitive_data_detected: boolean;
     columns: ColumnProfile[];
     quality_issues: ProfileQualityIssue[];
+}
+
+export interface CleaningProposal extends InsightEntityBase {
+    dataset_version_id: string;
+    problem_type: ProfileIssueType | string;
+    severity: InsightSeverity;
+    confidence: number;
+    scope: Record<string, unknown>;
+    evidence: Record<string, unknown>;
+    recommended_operation: string;
+    alternatives: string[];
+    requires_approval: boolean;
+    status: CleaningProposalStatus;
+}
+
+export interface CleaningOperation extends InsightEntityBase {
+    proposal_id: string | null;
+    operation_type: string;
+    input_version_id: string;
+    output_version_id: string | null;
+    parameters: Record<string, unknown>;
+    reason: string;
+    status: CleaningOperationStatus;
+    reversible: boolean;
+    before_metrics: Record<string, number>;
+    after_metrics: Record<string, number>;
+    metric_delta: Record<string, number>;
+    animation_payload: {
+        affected_rows?: number;
+        affected_columns?: string[];
+        sample_diff?: Array<Record<string, unknown>>;
+        raw_values_included?: boolean;
+        [key: string]: unknown;
+    };
+}
+
+export interface CleaningPreviewResponse {
+    proposal: CleaningProposal;
+    operation: CleaningOperation;
+    warnings: string[];
+    sampleDiff: Array<Record<string, unknown>>;
+}
+
+export interface CleaningApplyResponse {
+    proposal: CleaningProposal;
+    dataset: Dataset;
+    version: DatasetVersion;
+    operation: CleaningOperation;
+    idempotent: boolean;
+}
+
+export interface DatasetVersionsResponse {
+    dataset: Dataset;
+    versions: DatasetVersion[];
+    activeVersionId: string;
+}
+
+export interface UndoOperationResponse {
+    dataset: Dataset;
+    activeVersion: DatasetVersion;
+    previousVersion: DatasetVersion | null;
+    operation: CleaningOperation;
+    undoneOperation: CleaningOperation | null;
 }
 
 export interface RegisterDatasetResponse {
