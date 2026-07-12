@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../../src/app/apiClient', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../../../../src/app/apiClient')>();
@@ -18,6 +18,10 @@ import {
 } from '../../../../src/insight/api/insightClient';
 
 describe('cleaning insight client', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
     it('lists proposals for a specific dataset version', async () => {
         vi.mocked(apiRequest).mockResolvedValueOnce({ data: { proposals: [] } });
 
