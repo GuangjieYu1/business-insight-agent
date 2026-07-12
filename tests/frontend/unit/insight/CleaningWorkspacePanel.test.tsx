@@ -86,10 +86,12 @@ describe('CleaningWorkspacePanel', () => {
         });
     });
 
-    it('loads persisted proposals without regenerating them', async () => {
+    it('loads persisted proposals and keeps the standalone header and version history by default', async () => {
         render(<CleaningWorkspacePanel datasetId="dataset_sales" />);
 
         expect(await screen.findByText('insight.issueTypes.whitespace_pollution')).toBeInTheDocument();
+        expect(screen.getByText('insight.cleaning.title')).toBeInTheDocument();
+        expect(screen.getByText('insight.cleaning.versions.title')).toBeInTheDocument();
         expect(screen.getByText('version_000 · 3 × 2')).toBeInTheDocument();
         expect(screen.getByText('insight.cleaning.status.pending')).toBeInTheDocument();
     });
@@ -136,5 +138,22 @@ describe('CleaningWorkspacePanel', () => {
         fireEvent.click(screen.getByText('insight.cleaning.approve'));
         await waitFor(() => expect(approveCleaningProposal).toHaveBeenCalledWith('proposal_1'));
         expect(await screen.findByText('insight.cleaning.status.approved')).toBeInTheDocument();
+    });
+
+    it('can hide duplicated header and version controls for the embedded workspace mode', async () => {
+        render(
+            <CleaningWorkspacePanel
+                datasetId="dataset_sales"
+                showHeader={false}
+                showVersionHistory={false}
+                showUndo={false}
+            />,
+        );
+
+        expect(await screen.findByText('insight.issueTypes.whitespace_pollution')).toBeInTheDocument();
+        expect(screen.queryByText('insight.cleaning.title')).not.toBeInTheDocument();
+        expect(screen.queryByText('insight.cleaning.versions.title')).not.toBeInTheDocument();
+        expect(screen.queryByText('insight.cleaning.refresh')).not.toBeInTheDocument();
+        expect(screen.queryByText('version_000 · 3 × 2')).not.toBeInTheDocument();
     });
 });

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const abortRequest = vi.fn();
 const dispatch = vi.fn(() => ({ abort: abortRequest }));
 
-let profilingStatus: 'registering' | undefined;
+let profilingStatus: 'registering' | 'ready' | undefined;
 
 const activeTable = {
     id: 'table-1',
@@ -26,9 +26,11 @@ vi.mock('react-redux', () => ({
                         requestKey: 'workspace-1::table-1',
                         workspaceId: 'workspace-1',
                         tableId: 'table-1',
-                        datasetId: null,
-                        profileVersionId: null,
-                        profile: null,
+                        datasetId: profilingStatus === 'ready' ? 'dataset_sales' : null,
+                        profileVersionId: profilingStatus === 'ready' ? 'version_000' : null,
+                        profile: profilingStatus === 'ready'
+                            ? { id: 'profile_sales', version_id: 'version_000', dataset_id: 'dataset_sales' }
+                            : null,
                         status: profilingStatus,
                         error: null,
                         currentRequestId: 'request-1',
@@ -66,12 +68,19 @@ vi.mock('../../../../src/insight/components/ProfileOverviewCards', () => ({
     ProfileOverviewCards: () => <div>overview</div>,
 }));
 
+vi.mock('../../../../src/insight/components/VersionedCleaningWorkspacePanel', () => ({
+    VersionedCleaningWorkspacePanel: ({ datasetId }: { datasetId: string }) => (
+        <div>{`versioned cleaning workspace ${datasetId}`}</div>
+    ),
+}));
+
 vi.mock('react-i18next', () => ({
     useTranslation: () => ({
         t: (key: string) => ({
             'insight.tabs.ariaLabel': 'Business insight workspace tabs',
             'insight.tabs.analysis': 'Analysis View',
             'insight.tabs.profiling': 'Data Profile',
+            'insight.tabs.cleaning': 'Cleaning Suggestions',
             'insight.profile.emptyTitle': 'Profile will appear here',
             'insight.profile.emptyBody': 'Open this tab to load a profile.',
             'insight.profile.loading.registering': 'Registering',
@@ -100,5 +109,14 @@ describe('InsightWorkspacePane request lifecycle', () => {
 
         expect(abortRequest).not.toHaveBeenCalled();
         expect(screen.getByText('Registering')).toBeInTheDocument();
+    });
+
+    it('renders the versioned cleaning workspace when the cleaning tab opens with a ready dataset resource', () => {
+        profilingStatus = 'ready';
+        render(<InsightWorkspacePane analysisView={<div>analysis</div>} />);
+
+        fireEvent.click(screen.getByRole('tab', { name: 'Cleaning Suggestions' }));
+
+        expect(screen.getByText('versioned cleaning workspace dataset_sales')).toBeInTheDocument();
     });
 });

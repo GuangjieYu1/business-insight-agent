@@ -84,11 +84,19 @@ function formatScope(proposal: CleaningProposal): string {
 export interface CleaningWorkspacePanelProps {
     datasetId: string;
     versionId?: string;
+    showVersionHistory?: boolean;
+    showUndo?: boolean;
+    showHeader?: boolean;
+    refreshToken?: number;
 }
 
 export function CleaningWorkspacePanel({
     datasetId,
     versionId = 'version_000',
+    showVersionHistory = true,
+    showUndo = true,
+    showHeader = true,
+    refreshToken = 0,
 }: CleaningWorkspacePanelProps) {
     const { t } = useTranslation();
     const [proposals, setProposals] = useState<CleaningProposal[]>([]);
@@ -163,7 +171,7 @@ export function CleaningWorkspacePanel({
         setNotice(null);
         void loadWorkspace(controller.signal);
         return () => controller.abort();
-    }, [loadWorkspace]);
+    }, [loadWorkspace, refreshToken]);
 
     const requestFor = useCallback((proposal: CleaningProposal) => {
         const operationType = selectedOperations[proposal.id] || proposal.recommended_operation;
@@ -257,64 +265,70 @@ export function CleaningWorkspacePanel({
 
     return (
         <Stack spacing={2}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between">
-                <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                        {t('insight.cleaning.title')}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                        {t('insight.cleaning.subtitle', { datasetId, versionId })}
-                    </Typography>
-                </Box>
-                <Button variant="outlined" size="small" onClick={() => { void loadWorkspace(); }}>
-                    {t('insight.cleaning.refresh')}
-                </Button>
-            </Stack>
-
+            {showHeader ? (
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between">
+                    <Box>
+                        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                            {t('insight.cleaning.title')}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                            {t('insight.cleaning.subtitle', { datasetId, versionId })}
+                        </Typography>
+                    </Box>
+                    <Button variant="outlined" size="small" onClick={() => { void loadWorkspace(); }}>
+                        {t('insight.cleaning.refresh')}
+                    </Button>
+                </Stack>
+            ) : null}
             {error ? <Alert severity="error">{error.message}</Alert> : null}
             {notice ? <Alert severity="success">{notice}</Alert> : null}
 
-            <Card variant="outlined">
-                <CardContent>
-                    <Stack spacing={1}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                                {t('insight.cleaning.versions.title')}
-                            </Typography>
-                            <Chip
-                                size="small"
-                                color="primary"
-                                label={t('insight.cleaning.versions.active', { versionId: activeVersionId })}
-                            />
+            {showVersionHistory || (showUndo && latestOperation?.status === 'completed') ? (
+                <Card variant="outlined">
+                    <CardContent>
+                        <Stack spacing={1}>
+                            {showVersionHistory ? (
+                                <>
+                                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                                            {t('insight.cleaning.versions.title')}
+                                        </Typography>
+                                        <Chip
+                                            size="small"
+                                            color="primary"
+                                            label={t('insight.cleaning.versions.active', { versionId: activeVersionId })}
+                                        />
+                                    </Stack>
+                                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                        {versions.map((version) => (
+                                            <Chip
+                                                key={version.id}
+                                                size="small"
+                                                variant={version.id === activeVersionId ? 'filled' : 'outlined'}
+                                                color={version.status === 'invalid' ? 'error' : version.id === activeVersionId ? 'primary' : 'default'}
+                                                label={`${version.id} · ${version.row_count} × ${version.column_count}`}
+                                            />
+                                        ))}
+                                    </Stack>
+                                </>
+                            ) : null}
+                            {showUndo && latestOperation?.status === 'completed' ? (
+                                <Box>
+                                    <Button
+                                        color="warning"
+                                        variant="outlined"
+                                        size="small"
+                                        disabled={undoing}
+                                        onClick={() => { void undoLatest(); }}
+                                    >
+                                        {undoing ? t('insight.cleaning.undoing') : t('insight.cleaning.undo')}
+                                    </Button>
+                                </Box>
+                            ) : null}
                         </Stack>
-                        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                            {versions.map((version) => (
-                                <Chip
-                                    key={version.id}
-                                    size="small"
-                                    variant={version.id === activeVersionId ? 'filled' : 'outlined'}
-                                    color={version.status === 'invalid' ? 'error' : version.id === activeVersionId ? 'primary' : 'default'}
-                                    label={`${version.id} · ${version.row_count} × ${version.column_count}`}
-                                />
-                            ))}
-                        </Stack>
-                        {latestOperation?.status === 'completed' ? (
-                            <Box>
-                                <Button
-                                    color="warning"
-                                    variant="outlined"
-                                    size="small"
-                                    disabled={undoing}
-                                    onClick={() => { void undoLatest(); }}
-                                >
-                                    {undoing ? t('insight.cleaning.undoing') : t('insight.cleaning.undo')}
-                                </Button>
-                            </Box>
-                        ) : null}
-                    </Stack>
-                </CardContent>
-            </Card>
-
+                    </CardContent>
+                </Card>
+            ) : null}
             <Alert severity="info" variant="outlined">
                 {t('insight.cleaning.privacyNotice')}
             </Alert>

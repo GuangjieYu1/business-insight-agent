@@ -74,6 +74,7 @@ export function VersionedCleaningWorkspacePanel({
     const [undoing, setUndoing] = useState(false);
     const [error, setError] = useState<InsightError | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
+    const [refreshToken, setRefreshToken] = useState(0);
 
     const loadContext = useCallback(async (signal?: AbortSignal, followActive = false) => {
         setLoading(true);
@@ -154,6 +155,11 @@ export function VersionedCleaningWorkspacePanel({
         && CLEANING_OPERATION_TYPES.has(operation.operation_type)
     )) ?? null, [activeVersionId, operations]);
 
+    const handleRefresh = useCallback(() => {
+        setRefreshToken((current) => current + 1);
+        void loadContext(undefined, false);
+    }, [loadContext]);
+
     const undoLatest = useCallback(async () => {
         if (!latestUndoableOperation) return;
         setUndoing(true);
@@ -221,7 +227,7 @@ export function VersionedCleaningWorkspacePanel({
                                     color="primary"
                                     label={t('insight.cleaning.versions.active', { versionId: activeVersionId })}
                                 />
-                                <Button size="small" variant="outlined" onClick={() => { void loadContext(undefined, false); }}>
+                                <Button size="small" variant="outlined" onClick={handleRefresh}>
                                     {t('insight.cleaning.refresh')}
                                 </Button>
                             </Stack>
@@ -323,6 +329,10 @@ export function VersionedCleaningWorkspacePanel({
                     key={`${datasetId}:${selectedVersionId}`}
                     datasetId={datasetId}
                     versionId={selectedVersionId}
+                    showHeader={false}
+                    showVersionHistory={false}
+                    showUndo={false}
+                    refreshToken={refreshToken}
                 />
             )}
         </Stack>

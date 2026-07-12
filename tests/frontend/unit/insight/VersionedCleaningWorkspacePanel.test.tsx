@@ -2,6 +2,10 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const cleaningWorkspacePanelMock = vi.fn(({ datasetId, versionId }: { datasetId: string; versionId: string }) => (
+    <div>{`cleaning ${datasetId} ${versionId}`}</div>
+));
+
 vi.mock('react-i18next', () => ({
     useTranslation: () => ({
         t: (key: string, params?: Record<string, unknown>) => {
@@ -21,9 +25,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('../../../../src/insight/components/CleaningWorkspacePanel', () => ({
-    CleaningWorkspacePanel: ({ datasetId, versionId }: { datasetId: string; versionId: string }) => (
-        <div>{`cleaning ${datasetId} ${versionId}`}</div>
-    ),
+    CleaningWorkspacePanel: (props: { datasetId: string; versionId: string }) => cleaningWorkspacePanelMock(props),
 }));
 
 vi.mock('../../../../src/insight/api/insightClient', () => ({
@@ -105,6 +107,10 @@ const duplicateIssue: ProfileQualityIssue = {
 describe('VersionedCleaningWorkspacePanel', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        cleaningWorkspacePanelMock.mockClear();
+        cleaningWorkspacePanelMock.mockImplementation(({ datasetId, versionId }: { datasetId: string; versionId: string }) => (
+            <div>{`cleaning ${datasetId} ${versionId}`}</div>
+        ));
         vi.mocked(listDatasetVersions).mockResolvedValue({
             dataset: { id: 'dataset_sales' } as any,
             versions: [version000, version001],
@@ -147,7 +153,7 @@ describe('VersionedCleaningWorkspacePanel', () => {
         });
     });
 
-    it('selects the active version, compares with its parent, and restores persistent Undo', async () => {
+    it('selects the active version, compares with its parent, and embeds the proposal workspace without duplicated chrome', async () => {
         render(<VersionedCleaningWorkspacePanel datasetId="dataset_sales" />);
 
         expect(await screen.findByText('cleaning dataset_sales version_001')).toBeInTheDocument();
@@ -161,6 +167,29 @@ describe('VersionedCleaningWorkspacePanel', () => {
             'version_001',
             expect.any(AbortSignal),
         );
+        expect(cleaningWorkspacePanelMock).toHaveBeenLastCalledWith(expect.objectContaining({
+            datasetId: 'dataset_sales',
+            versionId: 'version_001',
+            showHeader: false,
+            showVersionHistory: false,
+            showUndo: false,
+            refreshToken: 0,
+        }));
+    });
+
+    it('uses the outer refresh control to reload version context and refresh the embedded workspace', async () => {
+        render(<VersionedCleaningWorkspacePanel datasetId="dataset_sales" />);
+        await screen.findByText('cleaning dataset_sales version_001');
+
+        fireEvent.click(screen.getByText('insight.cleaning.refresh'));
+
+        await waitFor(() => expect(listDatasetVersions).toHaveBeenCalledTimes(2));
+        expect(cleaningWorkspacePanelMock).toHaveBeenLastCalledWith(expect.objectContaining({
+            refreshToken: 1,
+            showHeader: false,
+            showVersionHistory: false,
+            showUndo: false,
+        }));
     });
 
     it('undoes the active cleaning from persisted operation history', async () => {
