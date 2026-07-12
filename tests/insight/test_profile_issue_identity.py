@@ -71,6 +71,24 @@ def test_issue_id_normalizes_scope_mapping_order():
     assert first.issue_id != changed_type.issue_id
 
 
+def test_issue_id_ignores_dataset_version_scope_fields():
+    version_zero = _issue(
+        issue_type="duplicate_rows",
+        scope={"dataset_id": "dataset_1", "version_id": "version_000"},
+    )
+    version_one = _issue(
+        issue_type="duplicate_rows",
+        scope={"dataset_version_id": "version_001", "dataset_id": "dataset_1"},
+    )
+    other_dataset = _issue(
+        issue_type="duplicate_rows",
+        scope={"dataset_id": "dataset_2", "version_id": "version_000"},
+    )
+
+    assert version_zero.issue_id == version_one.issue_id
+    assert version_zero.issue_id != other_dataset.issue_id
+
+
 def test_legacy_issue_payload_without_issue_id_is_upgraded():
     issue = ProfileQualityIssue.model_validate(
         {
