@@ -1,10 +1,13 @@
 import { ApiRequestError, apiRequest } from '../../app/apiClient';
 import type {
     CleaningApplyResponse,
+    CleaningOperation,
     CleaningPreviewResponse,
     CleaningProposal,
+    DatasetProfile,
     DatasetVersionsResponse,
     InsightError,
+    ProfileQualityIssue,
     ReadDatasetProfileResponse,
     RegisterDatasetResponse,
     UndoOperationResponse,
@@ -21,12 +24,43 @@ export interface CleaningOperationRequest {
     reason?: string;
 }
 
+export interface DatasetOperationsResponse {
+    operations: CleaningOperation[];
+}
+
+export interface ProfileComparisonResponse {
+    datasetId: string;
+    beforeVersionId: string;
+    afterVersionId: string;
+    beforeProfile: DatasetProfile;
+    afterProfile: DatasetProfile;
+    beforeMetrics: Record<string, number>;
+    afterMetrics: Record<string, number>;
+    metricDelta: Record<string, number>;
+    resolvedIssues: ProfileQualityIssue[];
+    introducedIssues: ProfileQualityIssue[];
+    unchangedIssues: Array<{
+        before: ProfileQualityIssue;
+        after: ProfileQualityIssue;
+    }>;
+}
+
+export const INSIGHT_DATASET_HISTORY_CHANGED = 'insight:dataset-history-changed';
+
 const insightUrl = (path: string): string => `/api/insight${path}`;
 const jsonOptions = (body?: unknown): RequestInit => ({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),
 });
+
+function notifyDatasetHistoryChanged(datasetId: string): void {
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(INSIGHT_DATASET_HISTORY_CHANGED, {
+            detail: { datasetId },
+        }));
+    }
+}
 
 export function toInsightError(error: unknown): InsightError {
     if (error instanceof ApiRequestError) {
@@ -103,14 +137,37 @@ export async function generateVersionZeroProfile(
     return data.profile;
 }
 
+export async function readDatasetVersionProfile(
+    datasetId: string,
+    versionId: string,
+    signal?: AbortSignal,
+): Promise<DatasetProfile> {
+    const { data } = await apiRequest<ReadDatasetProfileResponse>(
+        insightUrl(`/datasets/${datasetId}/versions/${versionId}/profile`),
+        { method: 'GET', signal },
+    );
+    return data.profile;
+}
+
+export async function generateDatasetVersionProfile(
+    datasetId: string,
+    versionId: string,
+    signal?: AbortSignal,
+): Promise<DatasetProfile> {
+    const { data } = await apiRequest<ReadDatasetProfileResponse>(
+        insightUrl(`/datasets/${datasetId}/versions/${versionId}/profile`),
+        { method: 'POST', signal },
+    );
+    return data.profile;
+}
+
 export async function listCleaningProposals(
     datasetId: string,
     versionId = 'version_000',
     signal?: AbortSignal,
 ): Promise<CleaningProposal[]> {
-    const params = new URLSearchParams({ datasetId, versionId });
     const { data } = await apiRequest<{ proposals: CleaningProposal[] }>(
-        insightUrl(`/cleaning/proposals?${params.toString()}`),
+        insightUrl(`/datasets/${datasetId}/versions/${versionId}/cleaning/proposals`),
         { method: 'GET', signal },
     );
     return data.proposals;
@@ -122,11 +179,8 @@ export async function generateCleaningProposals(
     signal?: AbortSignal,
 ): Promise<CleaningProposal[]> {
     const { data } = await apiRequest<{ proposals: CleaningProposal[] }>(
-        insightUrl('/cleaning/proposals'),
-        {
-            ...jsonOptions({ datasetId, versionId }),
-            signal,
-        },
+        insightUrl(`/datasets/${datasetId}/versions/${versionId}/cleaning/proposals`),
+        { ...jsonOptions(), signal },
     );
     return data.proposals;
 }
@@ -174,6 +228,7 @@ export async function applyCleaningProposal(
         insightUrl(`/cleaning/proposals/${proposalId}/apply-with-analysis`),
         { ...jsonOptions(request), signal },
     );
+    notifyDatasetHistoryChanged(data.dataset.id);
     return data;
 }
 
@@ -188,6 +243,31 @@ export async function listDatasetVersions(
     return data;
 }
 
+export async function listDatasetOperations(
+    datasetId: string,
+    signal?: AbortSignal,
+): Promise<CleaningOperation[]> {
+    const { data } = await apiRequest<DatasetOperationsResponse>(
+        insightUrl(`/datasets/${datasetId}/operations`),
+        { method: 'GET', signal },
+    );
+    return data.operations;
+}
+
+export async function compareDatasetProfiles(
+    datasetId: string,
+    beforeVersionId: string,
+    afterVersionId: string,
+    signal?: AbortSignal,
+): Promise<ProfileComparisonResponse> {
+    const params = new URLSearchParams({ beforeVersionId, afterVersionId });
+    const { data } = await apiRequest<ProfileComparisonResponse>(
+        insightUrl(`/datasets/${datasetId}/profiles/compare?${params.toString()}`),
+        { method: 'GET', signal },
+    );
+    return data;
+}
+
 export async function undoCleaningOperation(
     operationId: string,
     reason = 'Undo cleaning operation',
@@ -197,5 +277,6 @@ export async function undoCleaningOperation(
         insightUrl(`/operations/${operationId}/undo`),
         { ...jsonOptions({ reason }), signal },
     );
+    notifyDatasetHistoryChanged(data.dataset.id);
     return data;
 }

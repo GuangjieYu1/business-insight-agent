@@ -17,10 +17,10 @@ import { useTranslation } from 'react-i18next';
 import { dfSelectors, type DataFormulatorState } from '../../app/dfSlice';
 import type { AppDispatch, RootState } from '../../app/store';
 import type { DictTable } from '../../components/ComponentType';
-import { CleaningWorkspacePanel } from '../components/CleaningWorkspacePanel';
 import { ProfileColumnsTable } from '../components/ProfileColumnsTable';
 import { ProfileIssueList } from '../components/ProfileIssueList';
 import { ProfileOverviewCards } from '../components/ProfileOverviewCards';
+import { VersionedCleaningWorkspacePanel } from '../components/VersionedCleaningWorkspacePanel';
 import {
     loadProfileForTable,
     makeProfilingRequestKey,
@@ -220,12 +220,7 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
         const sharedState = renderSharedDatasetState();
         if (sharedState) return sharedState;
         if (!resource?.datasetId || !resource.profile) return <EmptyProfileState t={t} />;
-        return (
-            <CleaningWorkspacePanel
-                datasetId={resource.datasetId}
-                versionId={resource.profile.version_id}
-            />
-        );
+        return <VersionedCleaningWorkspacePanel datasetId={resource.datasetId} />;
     };
 
     return (
