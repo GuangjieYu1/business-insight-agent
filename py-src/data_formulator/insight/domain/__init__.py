@@ -20,6 +20,7 @@ from .models import (
     ProjectMaterial,
     SupportLevel,
 )
+from .persistence_models import Artifact, FinalSummary
 
 __all__ = [
     "AgentRun",
@@ -27,6 +28,7 @@ __all__ = [
     "AgentStep",
     "AnalysisGoal",
     "Approval",
+    "Artifact",
     "Claim",
     "ClaimType",
     "CleaningOperation",
@@ -38,6 +40,7 @@ __all__ = [
     "DatasetVersionStatus",
     "EvidenceRef",
     "Experiment",
+    "FinalSummary",
     "ProfileQualityIssue",
     "Project",
     "ProjectMaterial",
