@@ -74,7 +74,7 @@ Current Business Insight APIs:
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>&ensp;
   <a href="https://www.youtube.com/watch?v=GfTE2FLyMrs"><img src="https://img.shields.io/badge/YouTube-white?logo=youtube&logoColor=%23FF0000" alt="YouTube"></a>&ensp;
   <a href="https://github.com/microsoft/data-formulator/actions/workflows/python-build.yml"><img src="https://github.com/microsoft/data-formulator/actions/workflows/python-build.yml/badge.svg" alt="build"></a>&ensp;
-  <a href="https://discord.gg/mYCZMQKYZb"><img src="https://img.shields.io/badge/discord-chat-green" alt="Discord"></a>
+  <a href="https://discord.gg/mYCZMQKYZb"><img src="https://img.shields.io/badge/discord-chat-green?logo=discord" alt="Discord"></a>
 </p>
 
 <!-- [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/microsoft/data-formulator?quickstart=1) -->
@@ -88,7 +88,7 @@ Your data lives everywhere — databases, warehouses, BI tools, files. Coding ag
 
 Data Formulator makes it simple: **connect any data, ask anything, get charts you can edit, branch, and share** — all on one interactive, visual canvas.
 
-- **Data & platform teams**: wire up your databases, warehouses, BI sources once, and give the whole org an AI-powered data exploration layer.
+- **Data & platform teams**: wire up your databases, warehouses, and BI sources once, and give the whole org an AI-powered data exploration layer.
 - **Analysts & users**: ask, edit, branch, share. It's so easy to get insights from good-looking charts.
 
 https://github.com/user-attachments/assets/8e4f8a08-6423-4227-a1f7-559e0126ce31
