@@ -98,14 +98,14 @@ PROFILE_CONFIGURATION_HASH = "sha256:" + hashlib.sha256(
 SENSITIVE_COLUMN_NAME_RE = re.compile(
     r"(^|[_\-\s])(?:id|identifier|ssn|sin|email|e-mail|phone|mobile|tel|"
     r"name|full_name|address|addr|contact|customer|client|account|remark|comment|note)([_\-\s]|$)|"
-    r"(濮撳悕|鍦板潃|鐢佃瘽|鎵嬫満鍙穦閭|韬唤璇亅瀹㈡埛|璐﹀彿|澶囨敞)",
+    r"(身份证|手机号|手机|电话|邮箱|姓名|名字|地址|客户|联系人|备注|订单备注)",
     re.IGNORECASE,
 )
 EMAIL_VALUE_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 ID_VALUE_RE = re.compile(r"^\d{15}$|^\d{17}[\dXx]$")
 
 _DATE_HINT_RE = re.compile(
-    r"(\d{1,4}[-/]\d{1,2})|(\d{1,2}[-/]\d{1,4})|(\d{1,2}:\d{2})|[骞存湀鏃ユ椂鍒嗙]|"
+    r"(\d{1,4}[-/]\d{1,2})|(\d{1,2}[-/]\d{1,4})|(\d{1,2}:\d{2})|[年月日]|"
     r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b",
     re.IGNORECASE,
 )
