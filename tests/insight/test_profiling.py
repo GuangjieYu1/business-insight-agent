@@ -89,6 +89,59 @@ def test_profile_dataframe_detects_mixed_runtime_value_types():
     assert profile.columns[0].python_types == ["number", "str"]
 
 
+def test_profile_dataframe_detects_remaining_deterministic_detectors():
+    rows = 24
+    df = pd.DataFrame(
+        {
+            "": [f"row-{index}" for index in range(rows)],
+            "COL_G": [f"value-{index}" for index in range(rows)],
+            "customer_id": [f"CUST-{index:03d}" for index in range(rows)],
+            "dup_a": list(range(rows)),
+            "dup_b": list(range(rows)),
+            "dirty_text": ["ok"] * rows,
+            "whitespace_text": ["east"] * rows,
+            "metric": list(range(rows - 1)) + [10_000],
+            "ratio": [float(index) for index in range(rows)],
+        }
+    )
+    df.loc[1, "dirty_text"] = "bad\x07"
+    df.loc[2, "whitespace_text"] = " east"
+    df.loc[3, "whitespace_text"] = "west "
+    df.loc[5, "ratio"] = float("inf")
+
+    profile = profile_dataframe(
+        df,
+        workspace_id="workspace_1",
+        dataset_id="dataset_detectors",
+        version_id="version_000",
+        source_content_hash="sha256:def",
+        file_ref="datasets/dataset_detectors/versions/version_000.parquet",
+        profile_ref="datasets/dataset_detectors/profiles/version_000.json",
+    )
+
+    assert _issue_types(profile) >= {
+        "duplicate_columns",
+        "dirty_character_column",
+        "high_cardinality_id_like",
+        "outlier_warning",
+        "invalid_header",
+        "meaningless_header_candidate",
+        "infinite_value",
+        "whitespace_pollution",
+    }
+
+    columns = {column.name: column for column in profile.columns}
+    assert "invalid_header" in columns[""].quality_issue_types
+    assert "meaningless_header_candidate" in columns["COL_G"].quality_issue_types
+    assert "high_cardinality_id_like" in columns["customer_id"].quality_issue_types
+    assert "duplicate_columns" in columns["dup_a"].quality_issue_types
+    assert "duplicate_columns" in columns["dup_b"].quality_issue_types
+    assert "dirty_character_column" in columns["dirty_text"].quality_issue_types
+    assert "whitespace_pollution" in columns["whitespace_text"].quality_issue_types
+    assert "outlier_warning" in columns["metric"].quality_issue_types
+    assert "infinite_value" in columns["ratio"].quality_issue_types
+
+
 def test_profile_dataframe_is_content_deterministic():
     df = pd.DataFrame({"status": ["ok", "ok", "hold"]})
     kwargs = {

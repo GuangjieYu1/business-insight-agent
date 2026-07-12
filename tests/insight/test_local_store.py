@@ -37,3 +37,12 @@ def test_parquet_write_is_write_once_by_default(tmp_path: Path):
     assert store.file_sha256("datasets/dataset_1/versions/version_000.parquet").startswith("sha256:")
     with pytest.raises(FileExistsError):
         store.write_parquet("datasets/dataset_1/versions/version_000.parquet", df)
+
+
+def test_workspace_lock_context_is_available(tmp_path: Path):
+    store = LocalInsightStore(tmp_path)
+
+    with store.workspace_lock(timeout=0.1):
+        store.write_json("project.json", {"id": "project_1", "workspace_id": "workspace_1"})
+
+    assert store.exists("project.json")

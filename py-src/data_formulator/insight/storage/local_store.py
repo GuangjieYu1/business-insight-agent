@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
 import tempfile
-import hashlib
+from contextlib import suppress
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, TypeVar
 
 import pandas as pd
 from pydantic import BaseModel
+
+from data_formulator.datalake.workspace_metadata import WorkspaceLock
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -27,6 +30,11 @@ class LocalInsightStore:
         self.workspace_path = Path(workspace_path).resolve()
         self.root = self.workspace_path / "insight"
         self.root.mkdir(parents=True, exist_ok=True)
+
+    def workspace_lock(self, timeout: float | None = None) -> WorkspaceLock:
+        if timeout is None:
+            return WorkspaceLock(self.workspace_path)
+        return WorkspaceLock(self.workspace_path, timeout=timeout)
 
     def _resolve(self, relative_path: str | PurePosixPath) -> Path:
         path = PurePosixPath(str(relative_path).replace("\\", "/"))
@@ -45,6 +53,11 @@ class LocalInsightStore:
             return value.isoformat()
         raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
+    @staticmethod
+    def _fsync_path(path: str | Path) -> None:
+        with open(path, "r+b") as handle:
+            os.fsync(handle.fileno())
+
     def write_json(self, relative_path: str, payload: BaseModel | dict[str, Any]) -> Path:
         target = self._resolve(relative_path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -59,10 +72,8 @@ class LocalInsightStore:
                 os.fsync(handle.fileno())
             os.replace(temp_name, target)
         except Exception:
-            try:
+            with suppress(FileNotFoundError):
                 os.unlink(temp_name)
-            except FileNotFoundError:
-                pass
             raise
         return target
 
@@ -93,16 +104,13 @@ class LocalInsightStore:
         os.close(fd)
         try:
             dataframe.to_parquet(temp_name, index=False)
-            with open(temp_name, "rb") as handle:
-                os.fsync(handle.fileno())
+            self._fsync_path(temp_name)
             if target.exists() and not overwrite:
                 raise FileExistsError(f"Refusing to overwrite existing parquet: {relative_path}")
             os.replace(temp_name, target)
         except Exception:
-            try:
+            with suppress(FileNotFoundError):
                 os.unlink(temp_name)
-            except FileNotFoundError:
-                pass
             raise
         return target
 
@@ -185,8 +193,11 @@ class LocalInsightStore:
     def exists(self, relative_path: str) -> bool:
         return self._resolve(relative_path).exists()
 
-    def list_files(self, relative_dir: str = "") -> Iterable[str]:
+    def list(self, relative_dir: str = "") -> Iterable[str]:
         directory = self._resolve(relative_dir or ".")
         if not directory.exists():
             return []
         return sorted(str(path.relative_to(self.root).as_posix()) for path in directory.rglob("*") if path.is_file())
+
+    def list_files(self, relative_dir: str = "") -> Iterable[str]:
+        return self.list(relative_dir)
