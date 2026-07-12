@@ -4,15 +4,19 @@ Baseline date: 2026-07-12
 
 ## Scope
 
-This report records the validated Phase 4 Business Insight baseline after merging:
+This report records the validated Business Insight baseline through Phase 5.
 
-- PR #4: deterministic dataset profiling hardening
-- PR #5: profiling display, dataset versioning, and cleaning proposals
-- PR #6: reversible cleaning operations
-- PR #7: cleaning workspace UI
-- PR #8: `main` history synchronization into `develop`
+Merged milestones include:
 
-The Phase 4 product path now covers immutable dataset registration, deterministic profiling, cleaning proposals, privacy-safe Preview, approval-driven Apply, new dataset versions, version history, and Undo.
+- deterministic dataset profiling and display
+- immutable dataset versioning and cleaning Proposals
+- reversible cleaning operations and Cleaning Suggestions UI
+- version-specific Profile and Proposal APIs
+- automatic output-version Profile and Proposal generation after Apply
+- persistent Operation history and parent/child Profile comparison APIs
+- version-aware Cleaning Suggestions with historical read-only mode and refresh-persistent Undo
+
+The frozen Phase 4 release is tracked separately by Draft PR #12 from `release/phase4` to `main`. Phase 5 remains on `develop` until a later release is prepared.
 
 ## Supported environment
 
@@ -20,10 +24,10 @@ GitHub Actions uses:
 
 - Ubuntu hosted runner
 - Node setup through `actions/setup-node`
-- Python environment through `uv`
+- Python 3.12 through `uv`
 - Yarn dependencies from the repository lockfile
 
-Local development commands remain:
+Local development commands:
 
 ```bash
 uv sync
@@ -42,20 +46,23 @@ uv run pytest tests/insight -q
 
 Coverage includes:
 
-- product mode and health routing
 - workspace boundaries and storage contracts
 - project and dataset registration
-- immutable `version_000`
-- dataset version creation, activation, branching, history, rollback, and Undo
-- deterministic profiling, resource limits, redaction, and detector coverage
-- deterministic cleaning proposal generation
+- immutable Dataset Versions
+- activation, branching, history, rollback, and Undo
+- deterministic profiling for `version_000` and later versions
+- resource limits, redaction, and detector coverage
+- deterministic version-bound cleaning Proposals
 - cleaning operation parameter validation
 - privacy-safe Preview
 - approval and rejection state transitions
-- Apply idempotency
-- stale-version rejection
+- Apply idempotency and stale-version rejection
 - concurrent Apply serialization
-- route-level reversible-cleaning behavior
+- automatic output-version Profile and Proposal generation
+- failure isolation without cleaning-version rollback
+- persistent Operation history
+- parent/child Profile comparison and issue deltas
+- route-level multi-version behavior
 
 ### Existing Insight frontend
 
@@ -73,10 +80,12 @@ yarn vitest run \
 yarn vitest run tests/frontend/unit/insight/cleaningClient.test.ts
 ```
 
-### Cleaning workspace panel
+### Cleaning workspace panels
 
 ```bash
-yarn vitest run tests/frontend/unit/insight/CleaningWorkspacePanel.test.tsx
+yarn vitest run \
+  tests/frontend/unit/insight/CleaningWorkspacePanel.test.tsx \
+  tests/frontend/unit/insight/VersionedCleaningWorkspacePanel.test.tsx
 ```
 
 ### Production builds
@@ -86,71 +95,64 @@ yarn build
 uv build
 ```
 
-The workflow also archives the production artifacts. PyPI publishing is skipped for pull-request runs.
+The workflow archives production artifacts. PyPI publishing remains disabled for pull-request runs.
 
-## Latest validated runs
+## Latest validated Phase 5 runs
 
-### Reversible cleaning backend
+### Version-specific Profile and Proposal APIs
 
-GitHub Actions run `29187495048` completed successfully for commit `ed31e64b4da82b457e1a0ca0114c4e00f1e25863`.
+GitHub Actions run `29188982666` passed.
 
-Successful gates:
+### Output-version analysis after Apply
 
-- Business Insight backend tests
-- Business Insight frontend tests
-- frontend production build
-- Python artifact build
-- production artifact archive
+GitHub Actions run `29189177573` passed.
 
-### Cleaning workspace UI
+### Operation history and Profile comparison APIs
 
-GitHub Actions run `29187880062` completed successfully for commit `dcaa7bb515c6fa72d553d38b93fb3d9ebc14f1d3`.
+GitHub Actions run `29189319431` passed.
 
-Successful gates:
+### Version-aware Cleaning Suggestions workspace
 
-- Business Insight backend tests
-- existing Insight frontend tests
-- cleaning API client tests
-- cleaning workspace panel tests
-- frontend production build
-- Python artifact build
-- production artifact archive
+GitHub Actions run `29189583311` passed.
+
+Each run completed the backend suite, Insight frontend tests, cleaning client/panel tests, frontend production build, Python artifact build, and production artifact archive.
 
 ## Manual review coverage
 
-The merged Phase 4 pull requests were reviewed for:
+The merged Phase 5 pull requests were reviewed for:
 
-- whitelist-only operation execution
-- preservation of immutable source versions
-- absence of raw before/after values in Preview responses
-- explicit approval before Apply
-- deterministic and idempotent execution
-- stale and concurrent execution protection
-- frontend request lifecycle safety
-- parity between backend detector types and bilingual frontend labels
+- exact dataset-version and workspace ownership checks
+- current profiler/configuration reuse rules
+- preservation of approved, rejected, and applied Proposal state
+- compatibility of the existing `version_000` and legacy Apply APIs
+- post-processing failure isolation after successful Apply
+- immutable parent/child Profile comparison
+- dataset-scoped Operation history
+- historical-version read-only enforcement
+- refresh-persistent Undo eligibility
 - bounded PR scope and no new third-party runtime dependencies
 
 ## Known limitations
 
-- Profiling and proposal generation still default to `version_000`.
-- Successful Apply does not yet automatically profile the output version.
-- The frontend does not yet provide persistent Operation history after refresh.
-- Higher-risk cast, imputation, and row-filter operations remain disabled.
-- Profile and proposal generation remain synchronous HTTP operations.
-- A real browser smoke test is still required before the Phase 4 release is merged into `main`; repository CI validates code and builds but does not exercise the complete user journey in a running browser.
+- The standalone Data Profile tab remains oriented around initial `version_000` registration; multi-version comparison lives in Cleaning Suggestions.
+- The embedded legacy cleaning panel repeats some version-summary information.
+- Higher-risk cast, imputation, value replacement, and row-filter operations remain disabled.
+- Profile and Proposal generation remain synchronous HTTP operations.
+- A real browser smoke test is still required before frozen Phase 4 PR #12 can merge into `main`.
+- Merged Feature branches require manual deletion because the current connector cannot delete Git refs.
 
 ## Conclusion
 
-The automated Phase 4 baseline is green. The repository is ready for a `develop` to `main` release pull request after documentation review and a real-browser smoke test of:
+The automated Phase 5 baseline is green on `develop`. The deterministic multi-version loop is complete:
 
 ```text
-select table
-→ open Data Profile
-→ open Cleaning Suggestions
-→ Preview
-→ Approve
-→ Apply
-→ observe version_001
-→ Undo
-→ return to version_000
+version_000 Profile
+→ version_000 Proposals
+→ Preview / Approve / Apply
+→ version_001 Profile
+→ version_001 Proposals
+→ parent-child comparison
+→ persistent Undo or continued cleaning
 ```
+
+The next engineering stage is operational maturity: release smoke testing, UI consolidation, explicit stable issue identifiers, higher-risk operations with data-loss policies, and asynchronous Profile/Proposal jobs.
