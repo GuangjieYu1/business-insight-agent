@@ -73,6 +73,7 @@ export interface DatasetVersion extends InsightEntityBase {
 }
 
 export interface ProfileQualityIssue {
+    issue_id: string;
     issue_type: ProfileIssueType;
     severity: InsightSeverity;
     scope: Record<string, unknown>;
