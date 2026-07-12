@@ -54,13 +54,13 @@ Initial Business Insight APIs:
 
 
 <p align="center">
-  🪄 Explore data with visualizations, powered by AI agents.
+  馃獎 Explore data with visualizations, powered by AI agents.
 </p>
 
 <p align="center">
-  <a href="https://data-formulator.ai"><img src="https://img.shields.io/badge/🚀_Try_Online_Demo-data--formulator.ai-F59E0B?style=for-the-badge" alt="Try Online Demo"></a>
+  <a href="https://data-formulator.ai"><img src="https://img.shields.io/badge/馃殌_Try_Online_Demo-data--formulator.ai-F59E0B?style=for-the-badge" alt="Try Online Demo"></a>
   &nbsp;
-  <a href="#get-started"><img src="https://img.shields.io/badge/💻_Install_Locally-uvx_|_pip-3776AB?style=for-the-badge" alt="Install Locally"></a>
+  <a href="#get-started"><img src="https://img.shields.io/badge/馃捇_Install_Locally-uvx_|_pip-3776AB?style=for-the-badge" alt="Install Locally"></a>
 </p>
 
 <p align="center">
@@ -78,28 +78,28 @@ https://github.com/user-attachments/assets/8ca57b68-4d7a-42cb-bcce-43f8b1681ce2 
 
 ## Why Data Formulator?
 
-Your data lives everywhere — databases, warehouses, BI tools, files. Coding agents can help, but only after someone wires them up, and answers come back as walls of code or text that are hard to follow, refine, or share.
+Your data lives everywhere 鈥?databases, warehouses, BI tools, files. Coding agents can help, but only after someone wires them up, and answers come back as walls of code or text that are hard to follow, refine, or share.
 
-Data Formulator makes it simple: **connect any data, ask anything, get charts you can edit, branch, and share** — all on one interactive, visual canvas.
+Data Formulator makes it simple: **connect any data, ask anything, get charts you can edit, branch, and share** 鈥?all on one interactive, visual canvas.
 
 - **Data & platform teams**: wire up your databases, warehouses, and BI sources once, and give the whole org an AI-powered data exploration layer.
 - **Analysts & users**: ask, edit, branch, share. It's so easy to get insights from good-looking charts.
 
 https://github.com/user-attachments/assets/8e4f8a08-6423-4227-a1f7-559e0126ce31
 
-## News 🔥🔥🔥
+## News 馃敟馃敟馃敟
 
-[05-28-2026] **Data Formulator 0.7** — turn ANY data into insights in five easy steps:
+[05-28-2026] **Data Formulator 0.7** 鈥?turn ANY data into insights in five easy steps:
 
-1.  **Connect.** Governed, reusable connections to databases, warehouses, BI systems, object stores, and files (Superset, Kusto, Cosmos DB, MySQL, PostgreSQL, MSSQL, BigQuery, S3, Azure Blob, …). Need a custom source? Point your coding agent at the [data loader plugin guide](examples/plugins/README.md).
+1.  **Connect.** Governed, reusable connections to databases, warehouses, BI systems, object stores, and files (Superset, Kusto, Cosmos DB, MySQL, PostgreSQL, MSSQL, BigQuery, S3, Azure Blob, 鈥?. Need a custom source? Point your coding agent at the [data loader plugin guide](examples/plugins/README.md).
 2.  **Load.** Ask the **data-loading agent** to find tables from connected databases, or extract data from Excel files, images, websites, and text.
-3.  **Explore.** A unified **Data Agent** with thread memory inspects data, runs sandboxed code, and weaves explanation, exploration, and recommendation into one fluid conversation — grounded in your context. The **Data Thread** keeps questions, intermediate results, and charts navigable: revisit earlier steps, branch into alternatives, and compare side by side.
-4.  **Refine.** 30+ chart types (area, streamgraph, candlestick, radar, maps, KPI, …) via a new semantic chart engine, plus a **style-refinement agent** that turns rough charts into presentation-ready visuals through natural language.
+3.  **Explore.** A unified **Data Agent** with thread memory inspects data, runs sandboxed code, and weaves explanation, exploration, and recommendation into one fluid conversation 鈥?grounded in your context. The **Data Thread** keeps questions, intermediate results, and charts navigable: revisit earlier steps, branch into alternatives, and compare side by side.
+4.  **Refine.** 30+ chart types (area, streamgraph, candlestick, radar, maps, KPI, 鈥? via a new semantic chart engine, plus a **style-refinement agent** that turns rough charts into presentation-ready visuals through natural language.
 5.  **Share.** Build reports and export as image or PDF to tell the story.
 
-➕ **Persistent sessions & workspaces** — identity-isolated, saved across restarts. Data Formulator is your de facto data analysis pane.
+鉃?**Persistent sessions & workspaces** 鈥?identity-isolated, saved across restarts. Data Formulator is your de facto data analysis pane.
 
-**Multilingual UI** — Data Formulator now speaks Chinese in addition to English (没错，DF现在会说中文了！). More languages on the way — [contributions welcome](src/i18n/TRANSLATION_GUIDE.md).
+**Multilingual UI** 鈥?Data Formulator now speaks Chinese in addition to English (娌￠敊锛孌F鐜板湪浼氳涓枃浜嗭紒). More languages on the way 鈥?[contributions welcome](src/i18n/TRANSLATION_GUIDE.md).
 
 > Install with `pip install data_formulator` or run instantly with `uvx data_formulator`.
 
@@ -112,10 +112,10 @@ https://github.com/user-attachments/assets/8e4f8a08-6423-4227-a1f7-559e0126ce31
 
 Here are milestones that lead to the current design:
 - **v0.7 alpha 2** (05-11-2026): Early preview of data connectors, the unified `DataAgent` with thread memory, persistent workspaces, the semantic chart engine, and experimental knowledge distillation.
-- **v0.6** ([Demo](https://github.com/microsoft/data-formulator/releases/tag/0.6)): Real-time insights from live data — connect to URLs and databases with automatic refresh
-- **uv support**: Faster installation with [uv](https://docs.astral.sh/uv/) — `uvx data_formulator` or `uv pip install data_formulator`
+- **v0.6** ([Demo](https://github.com/microsoft/data-formulator/releases/tag/0.6)): Real-time insights from live data 鈥?connect to URLs and databases with automatic refresh
+- **uv support**: Faster installation with [uv](https://docs.astral.sh/uv/) 鈥?`uvx data_formulator` or `uv pip install data_formulator`
 - **v0.5.1** ([Demo](https://github.com/microsoft/data-formulator/pull/200#issue-3635408217)): Community data loaders, US Map & Pie Chart, editable reports, snappier UI
-- **v0.5**: Vibe with your data, in control — agent mode, data extraction, reports
+- **v0.5**: Vibe with your data, in control 鈥?agent mode, data extraction, reports
 - **v0.2.2** ([Demo](https://github.com/microsoft/data-formulator/pull/176)): Goal-driven exploration with agent recommendations and performance improvements
 - **v0.2.1.3/4** ([Readme](https://github.com/microsoft/data-formulator/tree/main/py-src/data_formulator/data_loader) | [Demo](https://github.com/microsoft/data-formulator/pull/155)): External data loaders (MySQL, PostgreSQL, MSSQL, Azure Data Explorer, S3, Azure Blob)
 - **v0.2** ([Demos](https://github.com/microsoft/data-formulator/releases/tag/0.2)): Large data support with DuckDB integration
@@ -129,7 +129,7 @@ Here are milestones that lead to the current design:
 
 ## Overview
 
-**Data Formulator** is a Microsoft Research project for data exploration with visualizations powered by AI agents. It combines *UI interactions* with *natural language* so analysts can communicate intent, branch into alternative analyses, and share results — starting from any data format (screenshot, text, CSV, or database).
+**Data Formulator** is a Microsoft Research project for data exploration with visualizations powered by AI agents. It combines *UI interactions* with *natural language* so analysts can communicate intent, branch into alternative analyses, and share results 鈥?starting from any data format (screenshot, text, CSV, or database).
 
 ## Get Started
 

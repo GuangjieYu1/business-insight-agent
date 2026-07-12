@@ -11,6 +11,7 @@ import navigation from './navigation.json';
 import dataLoading from './dataLoading.json';
 import loader from './loader.json';
 import errors from './errors.json';
+import insight from './insight.json';
 
 export default {
   ...common,
@@ -23,4 +24,5 @@ export default {
   ...dataLoading,
   ...loader,
   ...errors,
+  ...insight,
 };

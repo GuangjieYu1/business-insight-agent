@@ -35,6 +35,7 @@ import { borderColor, radius } from '../app/tokens';
 
 
 import { VisualizationViewFC } from './VisualizationView';
+import { InsightWorkspacePane } from '../insight/views/InsightWorkspacePane';
 
 import { DndProvider } from 'react-dnd'
 import { HTML5Backend } from 'react-dnd-html5-backend'
@@ -423,7 +424,9 @@ export const DataFormulatorFC = ({ }) => {
             <VisualizationViewFC />
         </Box>);
 
-    const visPane = visPaneMain;
+    const visPane = serverConfig.APP_PRODUCT_MODE === 'business_insight'
+        ? <InsightWorkspacePane analysisView={visPaneMain} />
+        : visPaneMain;
 
     let borderBoxStyle = {
         border: `1px solid ${borderColor.view}`, 

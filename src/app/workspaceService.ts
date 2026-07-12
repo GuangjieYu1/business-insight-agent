@@ -2,14 +2,14 @@
 // Licensed under the MIT License.
 
 /**
- * Unified workspace service — single API for all workspace operations.
+ * Unified workspace service 鈥?single API for all workspace operations.
  *
  * Components call these functions without knowing whether the backend is
  * local, azure_blob, or ephemeral.  The routing is handled internally
  * based on ``serverConfig.WORKSPACE_BACKEND``.
  *
- * - local / azure_blob  → server API calls via fetchWithIdentity
- * - ephemeral           → IndexedDB via workspaceDB / tableDataDB
+ * - local / azure_blob  鈫?server API calls via fetchWithIdentity
+ * - ephemeral           鈫?IndexedDB via workspaceDB / tableDataDB
  */
 
 import { fetchWithIdentity, getUrls } from './utils';
@@ -22,7 +22,7 @@ import {
     TableIndexEntry,
 } from './workspaceDB';
 
-// ── Helpers ─────────────────────────────────────────────────────────────
+// 鈹€鈹€ Helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 async function _getBackend(): Promise<'local' | 'azure_blob' | 'ephemeral'> {
     const { store } = await import('./store');
@@ -38,7 +38,7 @@ export interface WorkspaceSummary {
     chart_count?: number | null;
 }
 
-// ── Workspace list change event ─────────────────────────────────────
+// 鈹€鈹€ Workspace list change event 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 // Fired after mutations (save, delete, rename, meta-update) so all
 // list consumers can refresh without coupling to each other.
 
@@ -53,7 +53,7 @@ function _notifyListChanged(): void {
     window.dispatchEvent(new Event(WORKSPACE_LIST_CHANGED));
 }
 
-// ── Workspace CRUD ──────────────────────────────────────────────────────
+// 鈹€鈹€ Workspace CRUD 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /** List all workspaces (newest first). */
 export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
@@ -152,7 +152,7 @@ export async function saveWorkspaceState(state: Record<string, unknown>): Promis
     _notifyListChanged();
 }
 
-// ── Export / Import ─────────────────────────────────────────────────────
+// 鈹€鈹€ Export / Import 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /** Export a workspace as a downloadable zip Blob. */
 export async function exportWorkspace(id: string): Promise<Blob> {
@@ -167,6 +167,7 @@ export async function exportWorkspace(id: string): Promise<Blob> {
                 'dataLoaderConnectParams', 'identity', 'serverConfig',
                 'chartSynthesisInProgress', 'chartInsightInProgress',
                 'cleanInProgress', 'sessionLoading', 'sessionLoadingLabel',
+                'insight',
             ]);
             const serializable: Record<string, unknown> = {};
             for (const [key, value] of Object.entries(state)) {
@@ -216,7 +217,7 @@ export async function importWorkspace(
     return data.state;
 }
 
-// ── Table operations ────────────────────────────────────────────────────
+// 鈹€鈹€ Table operations 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /** Delete a table from the workspace (server or IndexedDB). */
 export async function deleteTableFromWorkspace(tableId: string): Promise<void> {
@@ -245,6 +246,6 @@ export function deleteTablesFromWorkspace(tableIds: string[]): void {
     }
 }
 
-// ── Table data (ephemeral only) ─────────────────────────────────────────
+// 鈹€鈹€ Table data (ephemeral only) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 export { tableDataDB } from './workspaceDB';

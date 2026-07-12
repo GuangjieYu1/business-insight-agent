@@ -18,6 +18,7 @@
 - Added Phase 1 project registration, dataset registration, and immutable `version_000` snapshots.
 - Started Dataset Profiling with `DatasetProfile`, `ColumnProfile`, read-only profile generation, profile persistence, and profile API routes.
 - Hardened Dataset Profiling with content-idempotent profile IDs, profiler/config metadata, resource limits, privacy-safe value persistence, clearer duplicate-row metrics, and develop-aware CI triggers.
+- Added Phase 3A right-pane Business Insight profiling display with dataset registration, saved-profile loading, and version_000 fallback generation.
 
 ## Current limitations
 
@@ -26,15 +27,14 @@
 - Dataset Profiling currently supports only immutable `version_000`.
 - Profile thresholds are fixed in code for the first pass: near-constant columns at 95% dominant value and high-missing columns at 50% missing values.
 - Profile generation is still synchronous HTTP work, with file size, row count, column count, and timeout guardrails as the first protection layer.
-- UI integration, asynchronous profile jobs, and cleaning recommendations are not implemented yet.
+- Only the right-pane profiling display is implemented in Phase 3A; cleaning recommendations, async jobs, and multi-version profile UX are still pending.
 
 ## Next implementation target
 
-Phase 1 Dataset Profiling continuation:
+Post-Phase 3A follow-up sequence:
 
-1. Harden profile issue evidence and severity calibration.
-2. Add frontend API client and profile display surface.
-3. Feed profile output into cleaning proposal generation.
-4. Split profile generation into asynchronous jobs for larger datasets.
-5. Add configurable profile thresholds after the first deterministic pass stabilizes.
-6. Keep all new persistent business-analysis data under workspace-scoped Insight storage.
+1. Backfill Phase 1 storage debt with InsightStore protocol boundaries and workspace locking.
+2. Finish Phase 2 immutable dataset version workflows: activation, history, undo, and branching.
+3. Return to Phase 3B for the remaining deterministic detectors and cleaning proposal generation.
+4. Keep all new persistent business-analysis data under workspace-scoped Insight storage.
+5. Defer async profiling jobs until the deterministic profiling/display path is stable.
