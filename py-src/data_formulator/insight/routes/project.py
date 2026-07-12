@@ -1,4 +1,4 @@
-"""Business Insight project, dataset, profiling, and versioning routes."""
+"""Business Insight project, dataset, profiling, cleaning, and versioning routes."""
 
 from __future__ import annotations
 
@@ -15,6 +15,13 @@ from data_formulator.insight.cleaning import (
     InsightCleaningError,
     generate_cleaning_proposals,
     list_cleaning_proposals,
+)
+from data_formulator.insight.cleaning_operations import (
+    InsightCleaningOperationError,
+    apply_cleaning_proposal,
+    approve_cleaning_proposal,
+    preview_cleaning_proposal,
+    reject_cleaning_proposal,
 )
 from data_formulator.insight.profiling import (
     InsightProfileError,
@@ -85,6 +92,12 @@ def _optional_bool(payload: dict[str, Any], camel_key: str, snake_key: str) -> b
 
 def _store_for(workspace: Workspace) -> LocalInsightStore:
     return LocalInsightStore(workspace.confined_root.root)
+
+
+def _cleaning_error(exc: InsightCleaningOperationError) -> AppError:
+    message = str(exc)
+    error_code = ErrorCode.TABLE_NOT_FOUND if "not found" in message.lower() else ErrorCode.INVALID_REQUEST
+    return AppError(error_code, message)
 
 
 @insight_project_bp.route("/project", methods=["GET"])
@@ -300,6 +313,92 @@ def generate_cleaning_proposals_route():
         raise AppError(error_code, message) from exc
 
     return json_ok({"proposals": [proposal.model_dump(mode="json") for proposal in proposals]})
+
+
+@insight_project_bp.route("/cleaning/proposals/<proposal_id>/preview", methods=["POST"])
+def preview_cleaning_proposal_route(proposal_id: str):
+    _, workspace = _workspace_context()
+    payload = _json_body()
+    parameters = payload.get("parameters") or {}
+    if not isinstance(parameters, dict):
+        raise AppError(ErrorCode.INVALID_REQUEST, "parameters must be an object")
+    try:
+        result = preview_cleaning_proposal(
+            _store_for(workspace),
+            workspace_id=_workspace_id(workspace),
+            proposal_id=proposal_id,
+            operation_type=payload.get("operationType") or payload.get("operation_type"),
+            parameters=parameters,
+        )
+    except InsightCleaningOperationError as exc:
+        raise _cleaning_error(exc) from exc
+    return json_ok(
+        {
+            "proposal": result.proposal.model_dump(mode="json"),
+            "operation": result.operation.model_dump(mode="json"),
+            "warnings": result.warnings,
+            "sampleDiff": result.sample_diff,
+        }
+    )
+
+
+@insight_project_bp.route("/cleaning/proposals/<proposal_id>/approve", methods=["POST"])
+def approve_cleaning_proposal_route(proposal_id: str):
+    _, workspace = _workspace_context()
+    try:
+        proposal = approve_cleaning_proposal(
+            _store_for(workspace),
+            workspace_id=_workspace_id(workspace),
+            proposal_id=proposal_id,
+        )
+    except InsightCleaningOperationError as exc:
+        raise _cleaning_error(exc) from exc
+    return json_ok({"proposal": proposal.model_dump(mode="json")})
+
+
+@insight_project_bp.route("/cleaning/proposals/<proposal_id>/reject", methods=["POST"])
+def reject_cleaning_proposal_route(proposal_id: str):
+    _, workspace = _workspace_context()
+    try:
+        proposal = reject_cleaning_proposal(
+            _store_for(workspace),
+            workspace_id=_workspace_id(workspace),
+            proposal_id=proposal_id,
+        )
+    except InsightCleaningOperationError as exc:
+        raise _cleaning_error(exc) from exc
+    return json_ok({"proposal": proposal.model_dump(mode="json")})
+
+
+@insight_project_bp.route("/cleaning/proposals/<proposal_id>/apply", methods=["POST"])
+def apply_cleaning_proposal_route(proposal_id: str):
+    _, workspace = _workspace_context()
+    payload = _json_body()
+    parameters = payload.get("parameters") or {}
+    if not isinstance(parameters, dict):
+        raise AppError(ErrorCode.INVALID_REQUEST, "parameters must be an object")
+    try:
+        result = apply_cleaning_proposal(
+            _store_for(workspace),
+            workspace_id=_workspace_id(workspace),
+            proposal_id=proposal_id,
+            operation_type=payload.get("operationType") or payload.get("operation_type"),
+            parameters=parameters,
+            reason=payload.get("reason"),
+        )
+    except InsightCleaningOperationError as exc:
+        raise _cleaning_error(exc) from exc
+    except InsightVersioningError as exc:
+        raise AppError(ErrorCode.INVALID_REQUEST, str(exc)) from exc
+    return json_ok(
+        {
+            "proposal": result.proposal.model_dump(mode="json"),
+            "dataset": result.dataset.model_dump(mode="json"),
+            "version": result.version.model_dump(mode="json"),
+            "operation": result.operation.model_dump(mode="json"),
+            "idempotent": result.idempotent,
+        }
+    )
 
 
 @insight_project_bp.route("/datasets/<dataset_id>/profile", methods=["POST"])
