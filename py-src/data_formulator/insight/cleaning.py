@@ -201,7 +201,7 @@ def generate_cleaning_proposals(
             raise InsightCleaningError(str(exc)) from exc
 
     columns_by_name = {column.name: column for column in profile.columns}
-    proposals: list[CleaningProposal] = []
+    generated: list[CleaningProposal] = []
     for issue in profile.quality_issues:
         proposal = _proposal_from_issue(
             dataset_id=dataset_id,
@@ -211,11 +211,30 @@ def generate_cleaning_proposals(
             columns_by_name=columns_by_name,
         )
         if proposal is not None:
-            proposals.append(proposal)
+            generated.append(proposal)
 
+    proposals: list[CleaningProposal] = []
     with store.workspace_lock():
-        for proposal in proposals:
-            store.write_json(_proposal_path(proposal.id), proposal)
+        for proposal in generated:
+            path = _proposal_path(proposal.id)
+            if store.exists(path):
+                existing = store.read_model(path, CleaningProposal)
+                if existing.workspace_id != workspace_id:
+                    raise InsightCleaningError(
+                        "Cleaning proposal workspace_id does not match active workspace"
+                    )
+                if existing.scope.get("dataset_id") != dataset_id:
+                    raise InsightCleaningError(
+                        "Cleaning proposal dataset metadata is inconsistent"
+                    )
+                if existing.dataset_version_id != version_id:
+                    raise InsightCleaningError(
+                        "Cleaning proposal version metadata is inconsistent"
+                    )
+                proposals.append(existing)
+                continue
+            store.write_json(path, proposal)
+            proposals.append(proposal)
 
     return proposals
 
