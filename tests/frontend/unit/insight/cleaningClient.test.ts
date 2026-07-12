@@ -11,7 +11,9 @@ vi.mock('../../../../src/app/apiClient', async (importOriginal) => {
 import { apiRequest } from '../../../../src/app/apiClient';
 import {
     applyCleaningProposal,
+    compareDatasetProfiles,
     listCleaningProposals,
+    listDatasetOperations,
     listDatasetVersions,
     previewCleaningProposal,
     undoCleaningOperation,
@@ -25,10 +27,10 @@ describe('cleaning insight client', () => {
     it('lists proposals for a specific dataset version', async () => {
         vi.mocked(apiRequest).mockResolvedValueOnce({ data: { proposals: [] } });
 
-        await listCleaningProposals('dataset_sales', 'version_000');
+        await listCleaningProposals('dataset_sales', 'version_001');
 
         expect(apiRequest).toHaveBeenCalledWith(
-            '/api/insight/cleaning/proposals?datasetId=dataset_sales&versionId=version_000',
+            '/api/insight/datasets/dataset_sales/versions/version_001/cleaning/proposals',
             expect.objectContaining({ method: 'GET' }),
         );
     });
@@ -36,7 +38,7 @@ describe('cleaning insight client', () => {
     it('previews and applies a selected operation with output analysis', async () => {
         vi.mocked(apiRequest)
             .mockResolvedValueOnce({ data: { operation: {}, proposal: {}, warnings: [], sampleDiff: [] } as any })
-            .mockResolvedValueOnce({ data: { operation: {}, proposal: {}, dataset: {}, version: {}, idempotent: false } as any });
+            .mockResolvedValueOnce({ data: { operation: {}, proposal: {}, dataset: { id: 'dataset_sales' }, version: {}, idempotent: false } as any });
 
         const request = { operationType: 'rename_column', parameters: { new_name: 'customer_name' } };
         await previewCleaningProposal('proposal_1', request);
@@ -54,13 +56,15 @@ describe('cleaning insight client', () => {
         );
     });
 
-    it('loads version history and sends undo reason', async () => {
+    it('loads versions, operations, and profile comparison', async () => {
         vi.mocked(apiRequest)
             .mockResolvedValueOnce({ data: { dataset: {}, versions: [], activeVersionId: 'version_001' } as any })
-            .mockResolvedValueOnce({ data: { dataset: {}, activeVersion: {}, previousVersion: {}, operation: {}, undoneOperation: {} } as any });
+            .mockResolvedValueOnce({ data: { operations: [] } as any })
+            .mockResolvedValueOnce({ data: { metricDelta: {} } as any });
 
         await listDatasetVersions('dataset_sales');
-        await undoCleaningOperation('operation_1', 'Undo from UI');
+        await listDatasetOperations('dataset_sales');
+        await compareDatasetProfiles('dataset_sales', 'version_000', 'version_001');
 
         expect(apiRequest).toHaveBeenNthCalledWith(
             1,
@@ -69,6 +73,30 @@ describe('cleaning insight client', () => {
         );
         expect(apiRequest).toHaveBeenNthCalledWith(
             2,
+            '/api/insight/datasets/dataset_sales/operations',
+            expect.objectContaining({ method: 'GET' }),
+        );
+        expect(apiRequest).toHaveBeenNthCalledWith(
+            3,
+            '/api/insight/datasets/dataset_sales/profiles/compare?beforeVersionId=version_000&afterVersionId=version_001',
+            expect.objectContaining({ method: 'GET' }),
+        );
+    });
+
+    it('sends undo reason', async () => {
+        vi.mocked(apiRequest).mockResolvedValueOnce({
+            data: {
+                dataset: { id: 'dataset_sales' },
+                activeVersion: {},
+                previousVersion: {},
+                operation: {},
+                undoneOperation: {},
+            } as any,
+        });
+
+        await undoCleaningOperation('operation_1', 'Undo from UI');
+
+        expect(apiRequest).toHaveBeenCalledWith(
             '/api/insight/operations/operation_1/undo',
             expect.objectContaining({ body: JSON.stringify({ reason: 'Undo from UI' }) }),
         );
