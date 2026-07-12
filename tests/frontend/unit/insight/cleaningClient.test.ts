@@ -33,7 +33,7 @@ describe('cleaning insight client', () => {
         );
     });
 
-    it('previews and applies a selected operation', async () => {
+    it('previews and applies a selected operation with output analysis', async () => {
         vi.mocked(apiRequest)
             .mockResolvedValueOnce({ data: { operation: {}, proposal: {}, warnings: [], sampleDiff: [] } as any })
             .mockResolvedValueOnce({ data: { operation: {}, proposal: {}, dataset: {}, version: {}, idempotent: false } as any });
@@ -49,7 +49,7 @@ describe('cleaning insight client', () => {
         );
         expect(apiRequest).toHaveBeenNthCalledWith(
             2,
-            '/api/insight/cleaning/proposals/proposal_1/apply',
+            '/api/insight/cleaning/proposals/proposal_1/apply-with-analysis',
             expect.objectContaining({ body: JSON.stringify(request) }),
         );
     });
