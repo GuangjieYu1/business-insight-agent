@@ -39,7 +39,7 @@ jobs:
     - name: Test Business Insight backend
       run: uv run pytest tests/insight -q
     - name: Test Business Insight frontend
-      run: yarn vitest run tests/frontend/productConfig.test.ts
+      run: yarn vitest run tests/frontend/productConfig.test.ts tests/frontend/unit/insight
     - name: Build frontend
       run: yarn build
     - name: Build python artifact
