@@ -45,12 +45,22 @@ export interface ProfileComparisonResponse {
     }>;
 }
 
+export const INSIGHT_DATASET_HISTORY_CHANGED = 'insight:dataset-history-changed';
+
 const insightUrl = (path: string): string => `/api/insight${path}`;
 const jsonOptions = (body?: unknown): RequestInit => ({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),
 });
+
+function notifyDatasetHistoryChanged(datasetId: string): void {
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(INSIGHT_DATASET_HISTORY_CHANGED, {
+            detail: { datasetId },
+        }));
+    }
+}
 
 export function toInsightError(error: unknown): InsightError {
     if (error instanceof ApiRequestError) {
@@ -218,6 +228,7 @@ export async function applyCleaningProposal(
         insightUrl(`/cleaning/proposals/${proposalId}/apply-with-analysis`),
         { ...jsonOptions(request), signal },
     );
+    notifyDatasetHistoryChanged(data.dataset.id);
     return data;
 }
 
@@ -266,5 +277,6 @@ export async function undoCleaningOperation(
         insightUrl(`/operations/${operationId}/undo`),
         { ...jsonOptions({ reason }), signal },
     );
+    notifyDatasetHistoryChanged(data.dataset.id);
     return data;
 }
