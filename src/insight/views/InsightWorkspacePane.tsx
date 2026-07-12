@@ -137,11 +137,17 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
             return;
         }
 
-        const promise = requestProfile();
-        return () => {
-            promise?.abort?.();
-        };
+        // Do not return a cleanup for this effect: the pending thunk updates
+        // resource.status immediately, and a dependency-driven cleanup would
+        // abort the request as it transitions from idle to registering.
+        void requestProfile();
     }, [activeTab, activeTable, activeWorkspace?.id, requestKey, requestProfile, resource?.status]);
+
+    useEffect(() => {
+        if (activeTab !== 'profiling') {
+            currentRequestRef.current?.abort?.();
+        }
+    }, [activeTab]);
 
     useEffect(() => {
         return () => {
