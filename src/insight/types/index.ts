@@ -6,9 +6,17 @@ export type ProfileIssueType =
     | 'near_constant_column'
     | 'high_missing_column'
     | 'duplicate_rows'
+    | 'duplicate_columns'
     | 'mixed_type_column'
     | 'numeric_parse_conflict'
-    | 'datetime_parse_conflict';
+    | 'datetime_parse_conflict'
+    | 'dirty_character_column'
+    | 'high_cardinality_id_like'
+    | 'outlier_warning'
+    | 'invalid_header'
+    | 'meaningless_header_candidate'
+    | 'infinite_value'
+    | 'whitespace_pollution';
 
 export type InferredColumnType =
     | 'empty'
