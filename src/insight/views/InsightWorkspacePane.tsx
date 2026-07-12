@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { dfSelectors, type DataFormulatorState } from '../../app/dfSlice';
 import type { AppDispatch, RootState } from '../../app/store';
 import type { DictTable } from '../../components/ComponentType';
+import { CleaningWorkspacePanel } from '../components/CleaningWorkspacePanel';
 import { ProfileColumnsTable } from '../components/ProfileColumnsTable';
 import { ProfileIssueList } from '../components/ProfileIssueList';
 import { ProfileOverviewCards } from '../components/ProfileOverviewCards';
@@ -27,7 +28,7 @@ import {
     type ProfilingStatus,
 } from '../store/profilingSlice';
 
-type InsightTab = 'analysis' | 'profiling';
+type InsightTab = 'analysis' | 'profiling' | 'cleaning';
 
 const statusMessageKey: Record<Exclude<ProfilingStatus, 'ready' | 'error' | 'idle'>, string> = {
     registering: 'insight.profile.loading.registering',
@@ -115,7 +116,6 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
         }
 
         currentRequestRef.current?.abort?.();
-
         const promise = dispatch(
             loadProfileForTable({
                 workspaceId: activeWorkspace.id,
@@ -129,45 +129,30 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
     }, [activeTable, activeWorkspace?.id, dispatch]);
 
     useEffect(() => {
-        if (activeTab !== 'profiling' || !activeWorkspace?.id || !activeTable || !requestKey) {
+        const needsDataset = activeTab === 'profiling' || activeTab === 'cleaning';
+        if (!needsDataset || !activeWorkspace?.id || !activeTable || !requestKey) {
             return;
         }
-
         if (resource?.status && ['registering', 'loading', 'profiling', 'ready', 'error'].includes(resource.status)) {
             return;
         }
-
-        // Do not return a cleanup for this effect: the pending thunk updates
-        // resource.status immediately, and a dependency-driven cleanup would
-        // abort the request as it transitions from idle to registering.
         void requestProfile();
     }, [activeTab, activeTable, activeWorkspace?.id, requestKey, requestProfile, resource?.status]);
 
     useEffect(() => {
-        if (activeTab !== 'profiling') {
+        if (activeTab === 'analysis') {
             currentRequestRef.current?.abort?.();
         }
     }, [activeTab]);
 
-    useEffect(() => {
-        return () => {
-            currentRequestRef.current?.abort?.();
-        };
-    }, []);
+    useEffect(() => () => currentRequestRef.current?.abort?.(), []);
 
-    const renderProfilingContent = () => {
-        if (!activeTable || !activeWorkspace?.id) {
-            return <MissingTableState t={t} />;
-        }
-
-        if (!resource || resource.status === 'idle') {
-            return <EmptyProfileState t={t} />;
-        }
-
+    const renderSharedDatasetState = (): React.ReactNode | null => {
+        if (!activeTable || !activeWorkspace?.id) return <MissingTableState t={t} />;
+        if (!resource || resource.status === 'idle') return <EmptyProfileState t={t} />;
         if (resource.status === 'registering' || resource.status === 'loading' || resource.status === 'profiling') {
             return <StatusBanner status={resource.status} t={t} />;
         }
-
         if (resource.status === 'error') {
             return (
                 <Stack spacing={1.5}>
@@ -189,10 +174,14 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
                 </Stack>
             );
         }
+        if (!resource.profile || !resource.datasetId) return <EmptyProfileState t={t} />;
+        return null;
+    };
 
-        if (!resource.profile) {
-            return <EmptyProfileState t={t} />;
-        }
+    const renderProfilingContent = () => {
+        const sharedState = renderSharedDatasetState();
+        if (sharedState) return sharedState;
+        if (!resource?.profile || !resource.datasetId || !activeTable) return <EmptyProfileState t={t} />;
 
         return (
             <Stack spacing={2}>
@@ -207,9 +196,7 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
                             {t('insight.profile.title', { tableName: resolveDatasetName(activeTable) })}
                         </Typography>
                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                            {t('insight.profile.subtitle', {
-                                datasetId: resource.datasetId ?? resource.profile.dataset_id,
-                            })}
+                            {t('insight.profile.subtitle', { datasetId: resource.datasetId })}
                         </Typography>
                     </Box>
                     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
@@ -229,6 +216,18 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
         );
     };
 
+    const renderCleaningContent = () => {
+        const sharedState = renderSharedDatasetState();
+        if (sharedState) return sharedState;
+        if (!resource?.datasetId || !resource.profile) return <EmptyProfileState t={t} />;
+        return (
+            <CleaningWorkspacePanel
+                datasetId={resource.datasetId}
+                versionId={resource.profile.version_id}
+            />
+        );
+    };
+
     return (
         <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 1.5, pt: 1 }}>
@@ -239,16 +238,15 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
                 >
                     <Tab value="analysis" label={t('insight.tabs.analysis')} />
                     <Tab value="profiling" label={t('insight.tabs.profiling')} />
+                    <Tab value="cleaning" label={t('insight.tabs.cleaning')} />
                 </Tabs>
             </Box>
             <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
                 {activeTab === 'analysis' ? (
-                    <Box sx={{ width: '100%', height: '100%' }}>
-                        {analysisView}
-                    </Box>
+                    <Box sx={{ width: '100%', height: '100%' }}>{analysisView}</Box>
                 ) : (
                     <Box sx={{ height: '100%', overflow: 'auto', px: 2, py: 2 }}>
-                        {renderProfilingContent()}
+                        {activeTab === 'profiling' ? renderProfilingContent() : renderCleaningContent()}
                     </Box>
                 )}
             </Box>
