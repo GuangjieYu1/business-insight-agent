@@ -18,6 +18,12 @@ from data_formulator.insight.version_profiling import (
 from .project import insight_project_bp, _store_for, _workspace_context, _workspace_id
 
 
+def _cleaning_error(exc: InsightCleaningError) -> AppError:
+    message = str(exc)
+    error_code = ErrorCode.TABLE_NOT_FOUND if "not found" in message.lower() else ErrorCode.INVALID_REQUEST
+    return AppError(error_code, message)
+
+
 @insight_project_bp.route(
     "/datasets/<dataset_id>/versions/<version_id>/profile",
     methods=["POST"],
@@ -69,11 +75,15 @@ def get_dataset_version_profile_route(dataset_id: str, version_id: str):
 )
 def list_dataset_version_cleaning_proposals_route(dataset_id: str, version_id: str):
     _, workspace = _workspace_context()
-    proposals = list_cleaning_proposals_for_version(
-        _store_for(workspace),
-        dataset_id=dataset_id,
-        version_id=version_id,
-    )
+    try:
+        proposals = list_cleaning_proposals_for_version(
+            _store_for(workspace),
+            workspace_id=_workspace_id(workspace),
+            dataset_id=dataset_id,
+            version_id=version_id,
+        )
+    except InsightCleaningError as exc:
+        raise _cleaning_error(exc) from exc
     return json_ok({"proposals": [proposal.model_dump(mode="json") for proposal in proposals]})
 
 
@@ -91,7 +101,5 @@ def generate_dataset_version_cleaning_proposals_route(dataset_id: str, version_i
             version_id=version_id,
         )
     except InsightCleaningError as exc:
-        message = str(exc)
-        error_code = ErrorCode.TABLE_NOT_FOUND if "not found" in message.lower() else ErrorCode.INVALID_REQUEST
-        raise AppError(error_code, message) from exc
+        raise _cleaning_error(exc) from exc
     return json_ok({"proposals": [proposal.model_dump(mode="json") for proposal in proposals]})
