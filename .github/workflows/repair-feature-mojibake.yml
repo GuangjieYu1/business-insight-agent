@@ -1,0 +1,84 @@
+name: Repair feature mojibake
+
+on:
+  pull_request:
+    types: [edited]
+    branches:
+      - develop
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.pull_request.head.ref == 'feature/profiling-display' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/profiling-display
+          fetch-depth: 0
+
+      - name: Restore known encoding-only corruption
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              "濮撳悕|鍦板潃|鐢佃瘽|鎵嬫満鍙穦閭|韬唤璇亅瀹㈡埛|璐﹀彿|澶囨敞":
+                  "身份证|手机号|手机|电话|邮箱|姓名|名字|地址|客户|联系人|备注|订单备注",
+              "骞存湀鏃ユ椂鍒嗙": "年月日",
+          }
+          suspicious = (
+              "馃", "鈥", "閳", "鈫", "鈹", "棣冩", "棣冪", "濞岋", "娌￠敊",
+              "濮撳", "鍦板", "鐢佃", "鎵嬫", "韬", "璐﹀", "澶囨", "骞存", "湀鏃",
+          )
+
+          changed_files = []
+          for path in Path('.').rglob('*'):
+              if not path.is_file() or '.git' in path.parts:
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except (UnicodeDecodeError, OSError):
+                  continue
+              repaired = text
+              for bad, good in replacements.items():
+                  repaired = repaired.replace(bad, good)
+              if repaired != text:
+                  path.write_text(repaired, encoding='utf-8', newline='')
+                  changed_files.append(str(path))
+
+          residual = []
+          for path in Path('.').rglob('*'):
+              if not path.is_file() or '.git' in path.parts:
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except (UnicodeDecodeError, OSError):
+                  continue
+              hits = [token for token in suspicious if token in text]
+              if hits:
+                  residual.append(f"{path}: {', '.join(hits)}")
+
+          print('Changed files:', changed_files)
+          if residual:
+              print('Residual suspicious text:')
+              print('\n'.join(residual))
+              raise SystemExit(1)
+          PY
+
+      - name: Commit repair
+        shell: bash
+        run: |
+          git diff --check
+          if git diff --quiet; then
+            echo "No repair required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: restore remaining UTF-8 text"
+          git push origin HEAD:feature/profiling-display
