@@ -132,10 +132,7 @@ def _column_name(proposal: CleaningProposal) -> str:
     return column
 
 
-def _resolve_operation(
-    proposal: CleaningProposal,
-    operation_type: str | None,
-) -> str:
+def _resolve_operation(proposal: CleaningProposal, operation_type: str | None) -> str:
     selected = (operation_type or proposal.recommended_operation).strip()
     allowed = {proposal.recommended_operation, *proposal.alternatives}
     if selected not in allowed:
@@ -217,7 +214,6 @@ def _execute_operation(
     parameters: dict[str, Any],
 ) -> tuple[pd.DataFrame, int, list[str], list[dict[str, Any]]]:
     result = dataframe.copy(deep=True)
-    sample_diff: list[dict[str, Any]] = []
 
     if operation_type == "drop_duplicate_rows":
         duplicate_mask = result.duplicated(keep="first")
@@ -232,16 +228,16 @@ def _execute_operation(
     column = parameters["column"]
     if operation_type == "drop_column":
         result = result.drop(columns=[column])
-        sample_diff = [{"change_type": "column_removed", "column": column}]
-        return result, int(len(dataframe)), [column], sample_diff
+        return result, int(len(dataframe)), [column], [
+            {"change_type": "column_removed", "column": column}
+        ]
 
     if operation_type == "rename_column":
         new_name = parameters["new_name"]
         result = result.rename(columns={column: new_name})
-        sample_diff = [
+        return result, int(len(dataframe)), [column, new_name], [
             {"change_type": "column_renamed", "column": column, "new_column": new_name}
         ]
-        return result, int(len(dataframe)), [column, new_name], sample_diff
 
     before = result[column].copy()
     if operation_type == "trim_string":
@@ -303,19 +299,57 @@ def _preview_operation_id(idempotency_key: str) -> str:
 def _find_completed_operation(
     store: InsightStore,
     *,
-    idempotency_key: str,
+    idempotency_key: str | None = None,
+    proposal_id: str | None = None,
 ) -> CleaningOperation | None:
     for relative_path in store.list("operations"):
         if not relative_path.endswith(".json"):
             continue
         operation = store.read_model(relative_path, CleaningOperation)
-        if (
-            operation.status == "completed"
+        if operation.status != "completed" or not operation.output_version_id:
+            continue
+        matches_key = (
+            idempotency_key is not None
             and operation.parameters.get("idempotency_key") == idempotency_key
-            and operation.output_version_id
-        ):
+        )
+        matches_proposal = (
+            proposal_id is not None
+            and (
+                operation.proposal_id == proposal_id
+                or operation.parameters.get("proposal_id") == proposal_id
+            )
+        )
+        if matches_key or matches_proposal:
             return operation
     return None
+
+
+def _result_from_existing_operation(
+    store: InsightStore,
+    *,
+    proposal: CleaningProposal,
+    operation: CleaningOperation,
+) -> CleaningApplyResult:
+    dataset_id = _dataset_id(proposal)
+    dataset = read_dataset(store, dataset_id)
+    if dataset is None:
+        raise InsightCleaningOperationError(f"Dataset not found: {dataset_id}")
+    version = read_dataset_version(store, dataset.id, str(operation.output_version_id))
+    if version is None:
+        raise InsightCleaningOperationError(
+            "Completed cleaning operation references a missing output version"
+        )
+    if proposal.status != "applied":
+        proposal = proposal.model_copy(update={"status": "applied", "updated_at": utc_now()})
+        with store.workspace_lock():
+            store.write_json(_proposal_path(proposal.id), proposal)
+    return CleaningApplyResult(
+        proposal=proposal,
+        dataset=dataset,
+        version=version,
+        operation=operation,
+        idempotent=True,
+    )
 
 
 def _build_preview(
@@ -347,7 +381,6 @@ def _build_preview(
     )
     before_metrics = _basic_metrics(dataframe)
     after_metrics = _basic_metrics(output)
-    delta = _metric_delta(before_metrics, after_metrics)
     key = _idempotency_key(
         proposal=proposal,
         operation_type=selected_operation,
@@ -362,7 +395,9 @@ def _build_preview(
     }
     warnings = []
     if selected_operation in _DESTRUCTIVE_OPERATIONS:
-        warnings.append("This operation removes data but remains reversible through dataset version history.")
+        warnings.append(
+            "This operation removes data but remains reversible through dataset version history."
+        )
 
     operation = CleaningOperation(
         id=_preview_operation_id(key),
@@ -379,7 +414,7 @@ def _build_preview(
         reversible=True,
         before_metrics=before_metrics,
         after_metrics=after_metrics,
-        metric_delta=delta,
+        metric_delta=_metric_delta(before_metrics, after_metrics),
         animation_payload={
             "affected_rows": affected_rows,
             "affected_columns": affected_columns,
@@ -461,6 +496,14 @@ def apply_cleaning_proposal(
     if proposal.status not in {"approved", "applied"}:
         raise InsightCleaningOperationError("Cleaning proposal must be approved before apply")
 
+    existing_for_proposal = _find_completed_operation(store, proposal_id=proposal.id)
+    if existing_for_proposal is not None:
+        return _result_from_existing_operation(
+            store,
+            proposal=proposal,
+            operation=existing_for_proposal,
+        )
+
     dataset, source_version = _require_dataset_and_version(
         store,
         workspace_id=workspace_id,
@@ -476,27 +519,12 @@ def apply_cleaning_proposal(
     )
     key = str(preview_operation.parameters["idempotency_key"])
 
-    existing_operation = _find_completed_operation(store, idempotency_key=key)
-    if existing_operation is not None:
-        existing_version = read_dataset_version(
+    existing_for_key = _find_completed_operation(store, idempotency_key=key)
+    if existing_for_key is not None:
+        return _result_from_existing_operation(
             store,
-            dataset.id,
-            str(existing_operation.output_version_id),
-        )
-        if existing_version is None:
-            raise InsightCleaningOperationError("Completed cleaning operation references a missing output version")
-        current_dataset = read_dataset(store, dataset.id)
-        if current_dataset is None:
-            raise InsightCleaningOperationError(f"Dataset not found: {dataset.id}")
-        if proposal.status != "applied":
-            proposal = proposal.model_copy(update={"status": "applied", "updated_at": utc_now()})
-            store.write_json(_proposal_path(proposal.id), proposal)
-        return CleaningApplyResult(
             proposal=proposal,
-            dataset=current_dataset,
-            version=existing_version,
-            operation=existing_operation,
-            idempotent=True,
+            operation=existing_for_key,
         )
 
     mutation = create_dataset_version(
