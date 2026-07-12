@@ -86,6 +86,10 @@ def generate_cleaning_proposals_for_version(
                     raise InsightCleaningError(
                         "Cleaning proposal workspace_id does not match active workspace"
                     )
+                if existing.scope.get("dataset_id") != dataset_id:
+                    raise InsightCleaningError(
+                        "Cleaning proposal dataset metadata is inconsistent"
+                    )
                 if existing.dataset_version_id != version_id:
                     raise InsightCleaningError(
                         "Cleaning proposal version metadata is inconsistent"
