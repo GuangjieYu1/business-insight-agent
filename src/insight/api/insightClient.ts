@@ -171,7 +171,7 @@ export async function applyCleaningProposal(
     signal?: AbortSignal,
 ): Promise<CleaningApplyResponse> {
     const { data } = await apiRequest<CleaningApplyResponse>(
-        insightUrl(`/cleaning/proposals/${proposalId}/apply`),
+        insightUrl(`/cleaning/proposals/${proposalId}/apply-with-analysis`),
         { ...jsonOptions(request), signal },
     );
     return data;
