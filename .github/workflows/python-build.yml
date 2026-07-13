@@ -1,5 +1,5 @@
 # This workflow will install Python dependencies, run tests and lint with a variety of Python versions
-# For more information see: https://docs.github.com/actions/automating-builds-and-tests/building-and-testing-python
+# For more information see: https://docs.github.com/actions/automating-builds-and-testing-python
 
 name: build
 
@@ -43,6 +43,16 @@ jobs:
       run: yarn vitest run tests/frontend/unit/insight/cleaningClient.test.ts
     - name: Test cleaning workspace panels
       run: yarn vitest run tests/frontend/unit/insight/CleaningWorkspacePanel.test.tsx tests/frontend/unit/insight/VersionedCleaningWorkspacePanel.test.tsx
+    - name: Test AgentRun API and EventSource client
+      run: yarn vitest run tests/frontend/unit/insight/agentRunClient.test.ts
+    - name: Test AgentRun Redux recovery
+      run: yarn vitest run tests/frontend/unit/insight/agentRunSlice.test.ts
+    - name: Test completed AgentRun final conclusion
+      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "restores a completed run"
+    - name: Test AgentRun process drawer
+      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "renders the complete persisted analysis process"
+    - name: Test AgentRun approval handoff
+      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "restores a waiting-approval run"
     - name: Build frontend
       run: yarn build
     - name: Build python artifact

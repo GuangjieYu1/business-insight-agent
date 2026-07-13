@@ -18,14 +18,12 @@ from data_formulator.insight.run_service import RunSnapshot, get_agent_run
 from data_formulator.insight.storage import InsightStore
 
 
-CLOSED_STREAM_STATUSES = frozenset(
-    {
-        "waiting_approval",
-        "completed",
-        "failed",
-        "cancelled",
-    }
-)
+_TERMINAL_EVENT_BY_STATUS = {
+    "waiting_approval": "approval_required",
+    "completed": "run_completed",
+    "failed": "run_failed",
+    "cancelled": "run_cancelled",
+}
 
 _STEP_STAGE_BY_TITLE = {
     "Analysis run started": "created",
@@ -203,6 +201,22 @@ def events_after_cursor(
     raise ValueError("Event cursor does not belong to this AgentRun")
 
 
+def _terminal_event_delivered(
+    *,
+    run_status: str,
+    events: list[RunEvent],
+    cursor: str | None,
+) -> bool:
+    expected_type = _TERMINAL_EVENT_BY_STATUS.get(run_status)
+    if expected_type is None:
+        return False
+    terminal_event = next(
+        (event for event in reversed(events) if event.event_type == expected_type),
+        None,
+    )
+    return terminal_event is not None and cursor == terminal_event.id
+
+
 def stream_agent_run_events(
     store: InsightStore,
     *,
@@ -215,10 +229,10 @@ def stream_agent_run_events(
 ) -> Iterator[str]:
     """Replay persisted events, then follow newly appended Run steps.
 
-    Streams for terminal and approval-waiting Runs close after all persisted
-    events are delivered. Active Runs remain open, poll for new steps, and emit
-    transport heartbeats. ``max_idle_seconds`` exists for bounded tests and
-    operational probes; normal HTTP usage leaves it unset.
+    A stream closes only after the terminal/approval Step itself has been
+    persisted and delivered. This prevents a transition-to-terminal race from
+    closing the connection between the Run JSON update and its final Step append.
+    Active Runs remain open, poll for new steps, and emit transport heartbeats.
     """
 
     cursor = after_event_id
@@ -240,9 +254,11 @@ def stream_agent_run_events(
                 cursor = event.id
             idle_started = time.monotonic()
 
-        if snapshot.run.status in CLOSED_STREAM_STATUSES and not pending:
-            return
-        if snapshot.run.status in CLOSED_STREAM_STATUSES and cursor == events[-1].id:
+        if _terminal_event_delivered(
+            run_status=snapshot.run.status,
+            events=events,
+            cursor=cursor,
+        ):
             return
 
         now = time.monotonic()
