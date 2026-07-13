@@ -43,6 +43,8 @@ jobs:
       run: yarn vitest run tests/frontend/unit/insight/cleaningClient.test.ts
     - name: Test cleaning workspace panels
       run: yarn vitest run tests/frontend/unit/insight/CleaningWorkspacePanel.test.tsx tests/frontend/unit/insight/VersionedCleaningWorkspacePanel.test.tsx
+    - name: Test observable AgentRun experience
+      run: yarn vitest run tests/frontend/unit/insight/agentRunClient.test.ts tests/frontend/unit/insight/agentRunSlice.test.ts tests/frontend/unit/insight/AgentRunWorkspace.test.tsx
     - name: Build frontend
       run: yarn build
     - name: Build python artifact
