@@ -11,7 +11,7 @@ const insightUrl = (path: string): string => `/api/insight${path}`;
 export interface CreateAgentRunParams {
     datasetId: string;
     versionId?: string;
-    goalId?: string;
+    goalId: string;
     executionMode?: 'synchronous' | 'background';
 }
 

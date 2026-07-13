@@ -28,19 +28,17 @@ def _workspace_headers(workspace: Workspace) -> dict[str, str]:
     return {"X-Workspace-Id": workspace.confined_root.root.name}
 
 
-def _seed_workspace(tmp_path: Path, monkeypatch):
+def _seed_workspace(tmp_path: Path, monkeypatch, *, include_secondary_metric: bool = False):
     workspace = Workspace("local:test", workspace_path=tmp_path / "workspace")
-    workspace.write_parquet(
-        pd.DataFrame(
-            {
-                "date": ["2024-01-01", "2024-01-02", "2024-01-03"],
-                "revenue": [120, 95, 80],
-                "region": ["east", "west", "east"],
-                "product": ["A", "B", "A"],
-            }
-        ),
-        "sales_raw",
-    )
+    table = {
+        "date": ["2024-01-01", "2024-01-02", "2024-01-03"],
+        "revenue": [120, 95, 80],
+        "region": ["east", "west", "east"],
+        "product": ["A", "B", "A"],
+    }
+    if include_secondary_metric:
+        table["sales_amount"] = [121, 96, 81]
+    workspace.write_parquet(pd.DataFrame(table), "sales_raw")
     app = _app_with_workspace(monkeypatch, workspace)
     client = app.test_client()
     headers = _workspace_headers(workspace)
@@ -53,32 +51,40 @@ def _seed_workspace(tmp_path: Path, monkeypatch):
     return workspace, client, headers
 
 
+def _manual_intent_payload(*, user_input: str = "why did revenue decline?") -> dict:
+    return {
+        "datasetId": DATASET_ID,
+        "datasetVersionId": "version_000",
+        "userInput": user_input,
+        "goalCandidates": [
+            {
+                "title": "Analyze revenue drivers",
+                "goalType": "driver_analysis",
+                "targetMetric": "revenue",
+                "dimensions": ["region", "product"],
+                "timeColumn": "date",
+                "confidence": 0.82,
+                "assumptions": ["Revenue is the main business metric"],
+            }
+        ],
+    }
+
+
+def _create_manual_intent(client, headers, *, user_input: str = "why did revenue decline?") -> dict:
+    response = client.post(
+        "/api/insight/intents",
+        json=_manual_intent_payload(user_input=user_input),
+        headers=headers,
+    )
+    assert response.status_code == 200
+    return response.get_json()["data"]
+
+
 def test_intent_routes_create_and_read_goal_candidates(tmp_path: Path, monkeypatch):
     _, client, headers = _seed_workspace(tmp_path, monkeypatch)
 
-    response = client.post(
-        "/api/insight/intents",
-        json={
-            "datasetId": DATASET_ID,
-            "datasetVersionId": "version_000",
-            "userInput": "为什么收入下降了？",
-            "goalCandidates": [
-                {
-                    "title": "分析收入下降的驱动因素",
-                    "goalType": "driver_analysis",
-                    "targetMetric": "revenue",
-                    "dimensions": ["region", "product"],
-                    "timeColumn": "date",
-                    "confidence": 0.82,
-                    "assumptions": ["收入字段是业务核心指标"],
-                }
-            ],
-        },
-        headers=headers,
-    )
+    payload = _create_manual_intent(client, headers)
 
-    assert response.status_code == 200
-    payload = response.get_json()["data"]
     assert payload["intent"]["dataset_id"] == DATASET_ID
     assert payload["intent"]["dataset_version_id"] == "version_000"
     assert payload["intent"]["status"] == "candidates_ready"
@@ -118,10 +124,10 @@ def test_intent_route_rejects_overlong_input_and_invalid_candidate_fields(tmp_pa
         json={
             "datasetId": DATASET_ID,
             "datasetVersionId": "version_000",
-            "userInput": "看看有哪些方向",
+            "userInput": "show me useful directions",
             "goalCandidates": [
                 {
-                    "title": "错误候选",
+                    "title": "Broken candidate",
                     "goalType": "driver_analysis",
                     "targetMetric": "revenue",
                     "dimensions": ["missing_dimension"],
@@ -138,26 +144,8 @@ def test_intent_route_rejects_overlong_input_and_invalid_candidate_fields(tmp_pa
 
 def test_goal_routes_confirm_patch_and_activate_goal(tmp_path: Path, monkeypatch):
     _, client, headers = _seed_workspace(tmp_path, monkeypatch)
-    intent_response = client.post(
-        "/api/insight/intents",
-        json={
-            "datasetId": DATASET_ID,
-            "datasetVersionId": "version_000",
-            "userInput": "为什么收入下降了？",
-            "goalCandidates": [
-                {
-                    "title": "分析收入下降的驱动因素",
-                    "goalType": "driver_analysis",
-                    "targetMetric": "revenue",
-                    "dimensions": ["region", "product"],
-                    "timeColumn": "date",
-                    "confidence": 0.82,
-                }
-            ],
-        },
-        headers=headers,
-    )
-    candidate = intent_response.get_json()["data"]["goalCandidates"][0]
+    intent_payload = _create_manual_intent(client, headers)
+    candidate = intent_payload["goalCandidates"][0]
 
     create_goal = client.post(
         "/api/insight/goals",
@@ -235,25 +223,8 @@ def test_runs_reject_unconfirmed_or_mismatched_goals(tmp_path: Path, monkeypatch
     assert pending_payload["error"]["code"] == "VALIDATION_ERROR"
     assert "confirmed" in pending_payload["error"]["message"]
 
-    intent_response = client.post(
-        "/api/insight/intents",
-        json={
-            "datasetId": DATASET_ID,
-            "datasetVersionId": "version_000",
-            "userInput": "为什么收入下降了？",
-            "goalCandidates": [
-                {
-                    "title": "分析收入下降的驱动因素",
-                    "goalType": "driver_analysis",
-                    "targetMetric": "revenue",
-                    "dimensions": ["region"],
-                    "timeColumn": "date",
-                }
-            ],
-        },
-        headers=headers,
-    )
-    candidate = intent_response.get_json()["data"]["goalCandidates"][0]
+    intent_payload = _create_manual_intent(client, headers)
+    candidate = intent_payload["goalCandidates"][0]
     goal_response = client.post(
         "/api/insight/goals",
         json={
@@ -290,6 +261,7 @@ def test_runs_reject_unconfirmed_or_mismatched_goals(tmp_path: Path, monkeypatch
     assert mismatched_payload["error"]["code"] == "VALIDATION_ERROR"
     assert "dataset version" in mismatched_payload["error"]["message"]
 
+
 def test_goal_creation_rejects_missing_or_spoofed_intent_without_persisting_goal(tmp_path: Path, monkeypatch):
     workspace, client, headers = _seed_workspace(tmp_path, monkeypatch)
     store = LocalInsightStore(workspace.confined_root.root)
@@ -312,25 +284,8 @@ def test_goal_creation_rejects_missing_or_spoofed_intent_without_persisting_goal
     assert missing_payload["error"]["code"] == "TABLE_NOT_FOUND"
     assert GoalStore(store, workspace_id=WORKSPACE_ID).list() == []
 
-    intent_response = client.post(
-        "/api/insight/intents",
-        json={
-            "datasetId": DATASET_ID,
-            "datasetVersionId": "version_000",
-            "userInput": "why did revenue decline?",
-            "goalCandidates": [
-                {
-                    "title": "Analyze revenue decline drivers",
-                    "goalType": "driver_analysis",
-                    "targetMetric": "revenue",
-                    "dimensions": ["region"],
-                    "timeColumn": "date",
-                }
-            ],
-        },
-        headers=headers,
-    )
-    candidate = intent_response.get_json()["data"]["goalCandidates"][0]
+    intent_payload = _create_manual_intent(client, headers)
+    candidate = intent_payload["goalCandidates"][0]
 
     spoofed_intent = client.post(
         "/api/insight/goals",
@@ -349,28 +304,9 @@ def test_goal_creation_rejects_missing_or_spoofed_intent_without_persisting_goal
     assert GoalStore(store, workspace_id=WORKSPACE_ID).list() == []
 
 
-
 def test_confirmed_goal_keeps_intent_confirmed_and_rejects_status_regression(tmp_path: Path, monkeypatch):
     _, client, headers = _seed_workspace(tmp_path, monkeypatch)
-    intent_response = client.post(
-        "/api/insight/intents",
-        json={
-            "datasetId": DATASET_ID,
-            "datasetVersionId": "version_000",
-            "userInput": "why did revenue decline?",
-            "goalCandidates": [
-                {
-                    "title": "Analyze revenue decline drivers",
-                    "goalType": "driver_analysis",
-                    "targetMetric": "revenue",
-                    "dimensions": ["region"],
-                    "timeColumn": "date",
-                }
-            ],
-        },
-        headers=headers,
-    )
-    intent_payload = intent_response.get_json()["data"]
+    intent_payload = _create_manual_intent(client, headers)
     candidate = intent_payload["goalCandidates"][0]
     intent_id = intent_payload["intent"]["id"]
 
@@ -406,3 +342,252 @@ def test_confirmed_goal_keeps_intent_confirmed_and_rejects_status_regression(tmp
         headers=headers,
     )
     assert loaded.get_json()["data"]["goal"]["status"] == "confirmed"
+
+
+def test_intent_routes_assign_unique_candidate_ids_per_intent(tmp_path: Path, monkeypatch):
+    _, client, headers = _seed_workspace(tmp_path, monkeypatch)
+
+    response_one = client.post(
+        "/api/insight/intents",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "userInput": "why did revenue decline?",
+            "goalCandidates": [
+                {
+                    "id": "goal_candidate_shared",
+                    "title": "Analyze revenue drivers",
+                    "goalType": "driver_analysis",
+                    "targetMetric": "revenue",
+                    "dimensions": ["region"],
+                    "timeColumn": "date",
+                }
+            ],
+        },
+        headers=headers,
+    )
+    response_two = client.post(
+        "/api/insight/intents",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "userInput": "compare revenue by region",
+            "goalCandidates": [
+                {
+                    "id": "goal_candidate_shared",
+                    "title": "Analyze revenue drivers",
+                    "goalType": "driver_analysis",
+                    "targetMetric": "revenue",
+                    "dimensions": ["region"],
+                    "timeColumn": "date",
+                }
+            ],
+        },
+        headers=headers,
+    )
+
+    payload_one = response_one.get_json()["data"]
+    payload_two = response_two.get_json()["data"]
+    assert payload_one["goalCandidates"][0]["id"] != payload_two["goalCandidates"][0]["id"]
+
+
+def test_goal_creation_blocks_awaiting_clarification_candidates_but_allows_custom_goal(tmp_path: Path, monkeypatch):
+    _, client, headers = _seed_workspace(tmp_path, monkeypatch, include_secondary_metric=True)
+
+    intent_response = client.post(
+        "/api/insight/intents",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "userInput": "why did sales decline recently",
+        },
+        headers=headers,
+    )
+    intent_payload = intent_response.get_json()["data"]
+    assert intent_payload["intent"]["status"] == "awaiting_clarification"
+    candidate = intent_payload["goalCandidates"][0]
+    intent_id = intent_payload["intent"]["id"]
+
+    blocked = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "sourceCandidateId": candidate["id"],
+        },
+        headers=headers,
+    )
+    blocked_payload = blocked.get_json()
+    assert blocked_payload["status"] == "error"
+    assert blocked_payload["error"]["code"] == "VALIDATION_ERROR"
+    assert "requires clarification" in blocked_payload["error"]["message"]
+
+    custom = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "intentId": intent_id,
+            "title": "Analyze revenue drivers",
+            "goalType": "driver_analysis",
+            "targetMetric": "revenue",
+            "dimensions": ["region"],
+            "timeColumn": "date",
+        },
+        headers=headers,
+    )
+    custom_payload = custom.get_json()["data"]
+    assert custom_payload["goal"]["status"] == "confirmed"
+    assert custom_payload["project"]["active_goal_id"] == custom_payload["goal"]["id"]
+
+    loaded_intent = client.get(f"/api/insight/intents/{intent_id}", headers=headers)
+    assert loaded_intent.get_json()["data"]["intent"]["status"] == "confirmed"
+
+
+def test_goal_patch_rejects_binding_changes(tmp_path: Path, monkeypatch):
+    _, client, headers = _seed_workspace(tmp_path, monkeypatch)
+    intent_payload = _create_manual_intent(client, headers)
+    candidate = intent_payload["goalCandidates"][0]
+    goal_response = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "sourceCandidateId": candidate["id"],
+        },
+        headers=headers,
+    )
+    goal_id = goal_response.get_json()["data"]["goal"]["id"]
+
+    patched = client.patch(
+        f"/api/insight/goals/{goal_id}",
+        json={"datasetId": "dataset_other"},
+        headers=headers,
+    )
+    patched_payload = patched.get_json()
+    assert patched_payload["status"] == "error"
+    assert patched_payload["error"]["code"] == "VALIDATION_ERROR"
+    assert "immutable" in patched_payload["error"]["message"]
+
+
+def test_goal_creation_idempotence_normalizes_filter_order(tmp_path: Path, monkeypatch):
+    _, client, headers = _seed_workspace(tmp_path, monkeypatch)
+
+    first = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "title": "Compare revenue by region",
+            "goalType": "comparison",
+            "targetMetric": "revenue",
+            "dimensions": ["region"],
+            "timeColumn": "date",
+            "filters": [
+                {"column": "region", "operator": "eq", "value": "east"},
+                {"column": "product", "operator": "eq", "value": "A"},
+            ],
+        },
+        headers=headers,
+    ).get_json()["data"]
+
+    repeated = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "title": "Compare revenue by region",
+            "goalType": "comparison",
+            "targetMetric": "revenue",
+            "dimensions": ["region"],
+            "timeColumn": "date",
+            "filters": [
+                {"column": "product", "operator": "eq", "value": "A"},
+                {"column": "region", "operator": "eq", "value": "east"},
+            ],
+        },
+        headers=headers,
+    ).get_json()["data"]
+
+    changed = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "title": "Compare revenue by region",
+            "goalType": "comparison",
+            "targetMetric": "revenue",
+            "dimensions": ["region"],
+            "timeColumn": "date",
+            "filters": [
+                {"column": "region", "operator": "eq", "value": "west"},
+                {"column": "product", "operator": "eq", "value": "A"},
+            ],
+        },
+        headers=headers,
+    ).get_json()["data"]
+
+    assert first["created"] is True
+    assert repeated["created"] is False
+    assert repeated["goal"]["id"] == first["goal"]["id"]
+    assert changed["created"] is True
+    assert changed["goal"]["id"] != first["goal"]["id"]
+
+
+def test_runs_require_goal_id_and_active_goal_match(tmp_path: Path, monkeypatch):
+    _, client, headers = _seed_workspace(tmp_path, monkeypatch)
+
+    missing_goal = client.post(
+        "/api/insight/runs",
+        json={"datasetId": DATASET_ID, "versionId": "version_000"},
+        headers=headers,
+    )
+    missing_payload = missing_goal.get_json()
+    assert missing_payload["status"] == "error"
+    assert missing_payload["error"]["code"] == "INVALID_REQUEST"
+    assert "goalId is required" in missing_payload["error"]["message"]
+
+    first_goal = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "title": "Analyze revenue drivers",
+            "goalType": "driver_analysis",
+            "targetMetric": "revenue",
+            "dimensions": ["region"],
+            "timeColumn": "date",
+        },
+        headers=headers,
+    ).get_json()["data"]["goal"]
+
+    second_goal = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "title": "Compare revenue by product",
+            "goalType": "comparison",
+            "targetMetric": "revenue",
+            "dimensions": ["product"],
+            "timeColumn": "date",
+        },
+        headers=headers,
+    ).get_json()["data"]["goal"]
+
+    mismatched_goal = client.post(
+        "/api/insight/runs",
+        json={"datasetId": DATASET_ID, "versionId": "version_000", "goalId": first_goal["id"]},
+        headers=headers,
+    )
+    mismatched_payload = mismatched_goal.get_json()
+    assert mismatched_payload["status"] == "error"
+    assert mismatched_payload["error"]["code"] == "VALIDATION_ERROR"
+    assert "active confirmed goal" in mismatched_payload["error"]["message"]
+
+    active_goal = client.post(
+        "/api/insight/runs",
+        json={"datasetId": DATASET_ID, "versionId": "version_000", "goalId": second_goal["id"]},
+        headers=headers,
+    )
+    assert active_goal.get_json()["status"] == "success"

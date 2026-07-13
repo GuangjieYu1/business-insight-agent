@@ -57,6 +57,7 @@ def create_intent_route():
     if user_input is None:
         raise AppError(ErrorCode.INVALID_REQUEST, "userInput is required")
 
+    goal_candidates = payload["goalCandidates"] if "goalCandidates" in payload else payload.get("goal_candidates")
     try:
         snapshot = create_intent_request(
             _store_for(workspace),
@@ -64,7 +65,7 @@ def create_intent_route():
             dataset_id=dataset_id,
             dataset_version_id=_optional_string(payload, "datasetVersionId", "dataset_version_id"),
             user_input=user_input,
-            goal_candidates=payload.get("goalCandidates") or payload.get("goal_candidates"),
+            goal_candidates=goal_candidates,
         )
     except InsightGoalError as exc:
         raise _goal_error(exc) from exc
@@ -73,6 +74,7 @@ def create_intent_route():
         {
             "intent": snapshot.intent.model_dump(mode="json"),
             "goalCandidates": [candidate.model_dump(mode="json") for candidate in snapshot.goal_candidates],
+            "questions": [question.model_dump(mode="json", by_alias=True) for question in snapshot.questions],
         }
     )
 
@@ -88,7 +90,13 @@ def get_intent_route(intent_id: str):
         )
     except InsightGoalError as exc:
         raise _goal_error(exc) from exc
-    return json_ok({"intent": snapshot.intent.model_dump(mode="json")})
+    return json_ok(
+        {
+            "intent": snapshot.intent.model_dump(mode="json"),
+            "goalCandidates": [candidate.model_dump(mode="json") for candidate in snapshot.goal_candidates],
+            "questions": [question.model_dump(mode="json", by_alias=True) for question in snapshot.questions],
+        }
+    )
 
 
 @insight_project_bp.route("/intents/<intent_id>/goal-candidates", methods=["GET"])
@@ -106,6 +114,7 @@ def list_goal_candidates_route(intent_id: str):
         {
             "intent": snapshot.intent.model_dump(mode="json"),
             "goalCandidates": [candidate.model_dump(mode="json") for candidate in snapshot.goal_candidates],
+            "questions": [question.model_dump(mode="json", by_alias=True) for question in snapshot.questions],
         }
     )
 

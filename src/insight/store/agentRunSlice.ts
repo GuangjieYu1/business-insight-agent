@@ -82,12 +82,12 @@ export const restoreLatestAgentRun = createAsyncThunk<
 
 export const startObservableAgentRun = createAsyncThunk<
     AgentRunSnapshot,
-    { datasetId: string; versionId?: string },
+    { datasetId: string; versionId?: string; goalId: string },
     { rejectValue: InsightError }
->('agentRun/start', async ({ datasetId, versionId }, thunkApi) => {
+>('agentRun/start', async ({ datasetId, versionId, goalId }, thunkApi) => {
     try {
         const created = await createAgentRun(
-            { datasetId, versionId, executionMode: 'background' },
+            { datasetId, versionId, goalId, executionMode: 'background' },
             thunkApi.signal,
         );
         return {

@@ -21,6 +21,8 @@ const EXCLUDED_FIELDS = new Set([
     // from the module cache on reload, so don't waste bandwidth saving them.
     'chartThumbnails',
     'insight',
+    'agentRun',
+    'goal',
 ]);
 
 /** Debounce interval in milliseconds. */

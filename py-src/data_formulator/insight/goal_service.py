@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 from typing import Any
 
-from data_formulator.insight.domain import AnalysisGoal, GoalCandidate, GoalFilter, GoalType, IntentRequest, Project
+from data_formulator.insight.domain import AnalysisGoal, ClarificationQuestion, GoalCandidate, GoalFilter, GoalType, IntentRequest, Project
+from data_formulator.insight.deterministic_goal_candidates import generate_goal_candidates
 from data_formulator.insight.domain.models import new_id, utc_now
 from data_formulator.insight.registry import (
     PROJECT_PATH,
@@ -23,7 +26,10 @@ from data_formulator.insight.storage import (
     InsightStore,
     IntentStore,
 )
-
+from data_formulator.insight.version_profiling import (
+    generate_dataset_version_profile,
+    read_dataset_version_profile,
+)
 
 MAX_GOAL_CANDIDATES = 4
 _PHASE6_ALLOWED_GOAL_TYPES = frozenset(
@@ -58,7 +64,7 @@ class InsightGoalConflictError(InsightGoalError):
 class IntentSnapshot:
     intent: IntentRequest
     goal_candidates: list[GoalCandidate]
-
+    questions: list[ClarificationQuestion]
 
 @dataclass(frozen=True)
 class GoalMutationResult:
@@ -72,6 +78,29 @@ class _ResolvedDatasetVersion:
     dataset_id: str
     version_id: str
     columns: list[str]
+
+
+def _load_profile_for_intent(
+    store: InsightStore,
+    *,
+    workspace_id: str,
+    dataset_id: str,
+    version_id: str,
+):
+    profile = read_dataset_version_profile(
+        store,
+        workspace_id=workspace_id,
+        dataset_id=dataset_id,
+        version_id=version_id,
+    )
+    if profile is not None:
+        return profile
+    return generate_dataset_version_profile(
+        store,
+        workspace_id=workspace_id,
+        dataset_id=dataset_id,
+        version_id=version_id,
+    )
 
 
 def _require_text(value: Any, field_name: str, *, max_length: int | None = None) -> str:
@@ -233,6 +262,92 @@ def _project_with_active_goal(
         store.write_json(PROJECT_PATH, updated)
     return updated
 
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+
+def _canonical_filter_signature(filters: list[GoalFilter]) -> tuple[tuple[str, str, str], ...]:
+    return tuple(
+        sorted(
+            (
+                goal_filter.column,
+                goal_filter.operator,
+                _canonical_json(goal_filter.value),
+            )
+            for goal_filter in filters
+        )
+    )
+
+
+
+def _goal_candidate_storage_id(
+    *,
+    intent_id: str,
+    dataset_id: str,
+    dataset_version_id: str,
+    title: str,
+    goal_type: GoalType,
+    target_metric: str | None,
+    dimensions: list[str],
+    time_column: str | None,
+    filters: list[GoalFilter],
+) -> str:
+    payload = {
+        "intent_id": intent_id,
+        "dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
+        "title": title,
+        "goal_type": goal_type.value,
+        "target_metric": target_metric,
+        "dimensions": dimensions,
+        "time_column": time_column,
+        "filters": [
+            {
+                "column": goal_filter.column,
+                "operator": goal_filter.operator,
+                "value": goal_filter.value,
+            }
+            for goal_filter in filters
+        ],
+    }
+    digest = hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()[:24]
+    return f"goal_candidate_{digest}"
+
+
+
+def _intent_status_for_snapshot(
+    *,
+    goal_candidates: list[GoalCandidate],
+    questions: list[ClarificationQuestion],
+) -> str:
+    if questions:
+        return "awaiting_clarification"
+    if goal_candidates:
+        return "candidates_ready"
+    return "created"
+
+
+
+def _reject_goal_binding_updates(payload: dict[str, Any]) -> None:
+    immutable_fields = (
+        "goalId",
+        "goal_id",
+        "datasetId",
+        "dataset_id",
+        "datasetVersionId",
+        "dataset_version_id",
+        "intentId",
+        "intent_id",
+        "sourceCandidateId",
+        "source_candidate_id",
+    )
+    for field_name in immutable_fields:
+        if field_name in payload:
+            raise InsightGoalConflictError(f"{field_name} is immutable after goal creation")
+
+
 def _goal_signature(goal: AnalysisGoal) -> tuple[Any, ...]:
     return (
         goal.dataset_id,
@@ -244,7 +359,7 @@ def _goal_signature(goal: AnalysisGoal) -> tuple[Any, ...]:
         goal.target_metric,
         tuple(goal.dimensions),
         goal.time_column,
-        tuple((goal_filter.column, goal_filter.operator, goal_filter.value) for goal_filter in goal.filters),
+        _canonical_filter_signature(goal.filters),
         goal.task_type,
         goal.description,
         tuple(goal.reasoning),
@@ -362,8 +477,19 @@ def _candidate_from_payload(
         time_column=time_column,
         filters=filters,
     )
+    candidate_id = _goal_candidate_storage_id(
+        intent_id=intent_id,
+        dataset_id=resolved.dataset_id,
+        dataset_version_id=resolved.version_id,
+        title=title,
+        goal_type=goal_type,
+        target_metric=target_metric,
+        dimensions=dimensions,
+        time_column=time_column,
+        filters=filters,
+    )
     return GoalCandidate(
-        id=_optional_text(payload.get("id"), "goalCandidates[].id") or new_id("goal_candidate"),
+        id=candidate_id,
         workspace_id=workspace_id,
         intent_id=intent_id,
         dataset_id=resolved.dataset_id,
@@ -408,6 +534,8 @@ def create_intent_request(
         dataset_id=dataset_id,
         dataset_version_id=dataset_version_id,
     )
+    intent_store = IntentStore(store, workspace_id=workspace_id)
+    candidate_store = GoalCandidateStore(store, workspace_id=workspace_id)
     intent = IntentRequest(
         id=new_id("intent"),
         workspace_id=workspace_id,
@@ -415,9 +543,10 @@ def create_intent_request(
         dataset_version_id=resolved.version_id,
         user_input=_require_text(user_input, "userInput", max_length=2000),
     )
-    IntentStore(store, workspace_id=workspace_id).create(intent)
+    intent_store.create(intent)
 
     candidate_models: list[GoalCandidate] = []
+    questions: list[ClarificationQuestion] = []
     if goal_candidates is not None:
         if not isinstance(goal_candidates, list):
             raise InsightGoalConflictError("goalCandidates must be a list")
@@ -434,14 +563,39 @@ def create_intent_request(
                     payload=candidate_payload,
                 )
             )
-        GoalCandidateStore(store, workspace_id=workspace_id).replace_for_intent(
-            intent.id,
-            candidate_models,
+    else:
+        profile = _load_profile_for_intent(
+            store,
+            workspace_id=workspace_id,
+            dataset_id=resolved.dataset_id,
+            version_id=resolved.version_id,
         )
-        intent = IntentStore(store, workspace_id=workspace_id).update(
-            intent.model_copy(update={"status": "candidates_ready", "updated_at": utc_now()})
+        generated = generate_goal_candidates(
+            workspace_id=workspace_id,
+            intent_id=intent.id,
+            dataset_id=resolved.dataset_id,
+            dataset_version_id=resolved.version_id,
+            user_input=intent.user_input,
+            profile=profile,
         )
-    return IntentSnapshot(intent=intent, goal_candidates=candidate_models)
+        candidate_models = generated.candidates
+        questions = generated.questions
+
+    candidate_store.replace_for_intent(intent.id, candidate_models)
+    status = _intent_status_for_snapshot(
+        goal_candidates=candidate_models,
+        questions=questions,
+    )
+    intent = intent_store.update(
+        intent.model_copy(
+            update={
+                "clarification_questions": questions,
+                "status": status,
+                "updated_at": utc_now(),
+            }
+        )
+    )
+    return IntentSnapshot(intent=intent, goal_candidates=candidate_models, questions=list(intent.clarification_questions))
 
 
 def get_intent_snapshot(
@@ -457,7 +611,7 @@ def get_intent_snapshot(
     if intent is None:
         raise InsightIntentNotFoundError(f"IntentRequest not found: {intent_id}")
     candidates = GoalCandidateStore(store, workspace_id=workspace_id).list_for_intent(intent.id)
-    return IntentSnapshot(intent=intent, goal_candidates=candidates)
+    return IntentSnapshot(intent=intent, goal_candidates=candidates, questions=list(intent.clarification_questions))
 
 
 def get_analysis_goal(
@@ -532,6 +686,10 @@ def create_analysis_goal(
         candidate=candidate,
         explicit_intent_id=explicit_intent_id,
     )
+    if candidate is not None and intent is not None and intent.status == "awaiting_clarification":
+        raise InsightGoalConflictError(
+            "GoalCandidate requires clarification before it can be confirmed"
+        )
 
     goal = _goal_from_candidate(
         workspace_id=workspace_id,
@@ -569,6 +727,7 @@ def update_analysis_goal(
     goal_id: str,
     payload: dict[str, Any],
 ) -> GoalMutationResult:
+    _reject_goal_binding_updates(payload)
     existing = get_analysis_goal(store, workspace_id=workspace_id, goal_id=goal_id)
     if existing.dataset_id is None:
         raise InsightGoalConflictError("Legacy AnalysisGoal cannot be updated until dataset binding is defined")

@@ -232,6 +232,7 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
             <AgentRunWorkspace
                 datasetId={resource.datasetId}
                 versionId={resource.profile.version_id}
+                profile={resource.profile}
                 onOpenCleaning={() => setActiveTab('cleaning')}
             />
         );

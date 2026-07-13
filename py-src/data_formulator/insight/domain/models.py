@@ -335,11 +335,62 @@ class GoalFilter(BaseModel):
         return value.strip()
 
 
+class ClarificationOption(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    label: str
+    label_code: str | None = None
+
+    @field_validator("label")
+    @classmethod
+    def _non_empty_label(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("label must not be empty")
+        return value.strip()
+
+    @field_validator("label_code")
+    @classmethod
+    def _optional_label_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class ClarificationQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    text: str
+    text_code: str | None = None
+    response_type: Literal["single_choice", "free_text"] = Field(
+        default="single_choice",
+        alias="responseType",
+        serialization_alias="responseType",
+    )
+    options: list[ClarificationOption] = Field(default_factory=list)
+
+    @field_validator("text")
+    @classmethod
+    def _non_empty_text(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("text must not be empty")
+        return value.strip()
+
+    @field_validator("text_code")
+    @classmethod
+    def _optional_text_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
 class IntentRequest(InsightModel):
     dataset_id: str
     dataset_version_id: str
     user_input: str = Field(min_length=1, max_length=2000)
-    status: Literal["created", "candidates_ready", "confirmed"] = "created"
+    clarification_questions: list[ClarificationQuestion] = Field(default_factory=list)
+    status: Literal["created", "awaiting_clarification", "candidates_ready", "confirmed"] = "created"
 
     @field_validator("dataset_id", "dataset_version_id", "user_input")
     @classmethod

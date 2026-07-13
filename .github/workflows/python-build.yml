@@ -37,8 +37,14 @@ jobs:
       run: yarn install
     - name: Test Business Insight backend
       run: uv run pytest tests/insight -q
+    - name: Test Intent and Goal backend
+      run: uv run pytest tests/insight/test_goal_repositories.py tests/insight/test_goal_routes.py tests/insight/test_deterministic_goal_candidates.py -q
     - name: Test existing Insight frontend
       run: yarn vitest run tests/frontend/productConfig.test.ts tests/frontend/unit/insight/InsightWorkspacePane.test.tsx tests/frontend/unit/insight/insightClient.test.ts tests/frontend/unit/insight/profilingSlice.test.ts
+    - name: Test Goal Client and Slice
+      run: yarn vitest run tests/frontend/unit/insight/goalClient.test.ts tests/frontend/unit/insight/goalSlice.test.ts
+    - name: Test Goal confirmation UI
+      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx
     - name: Test cleaning API client
       run: yarn vitest run tests/frontend/unit/insight/cleaningClient.test.ts
     - name: Test cleaning workspace panels

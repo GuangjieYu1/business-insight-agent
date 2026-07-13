@@ -24,7 +24,7 @@ def test_intent_and_goal_candidate_stores_round_trip(tmp_path: Path):
             workspace_id=WORKSPACE_ID,
             dataset_id="dataset_sales",
             dataset_version_id="version_000",
-            user_input="为什么收入下降了？",
+            user_input="Why did revenue decline?",
         )
     )
     saved_candidates = candidates.replace_for_intent(
@@ -36,7 +36,7 @@ def test_intent_and_goal_candidate_stores_round_trip(tmp_path: Path):
                 intent_id=intent.id,
                 dataset_id="dataset_sales",
                 dataset_version_id="version_000",
-                title="分析收入驱动因素",
+                title="Analyze revenue drivers",
                 goal_type="driver_analysis",
                 target_metric="revenue",
                 dimensions=["region"],
@@ -83,6 +83,44 @@ def test_goal_candidate_store_enforces_limit_and_intent_binding(tmp_path: Path):
                     dataset_id="dataset_sales",
                     dataset_version_id="version_000",
                     title="bad",
+                    goal_type="driver_analysis",
+                    confidence=0.5,
+                )
+            ],
+        )
+
+
+def test_goal_candidate_store_rejects_cross_intent_id_collisions(tmp_path: Path):
+    store = _store(tmp_path)
+    candidates = GoalCandidateStore(store, workspace_id=WORKSPACE_ID)
+
+    candidates.replace_for_intent(
+        "intent_1",
+        [
+            GoalCandidate(
+                id="goal_candidate_shared",
+                workspace_id=WORKSPACE_ID,
+                intent_id="intent_1",
+                dataset_id="dataset_sales",
+                dataset_version_id="version_000",
+                title="candidate one",
+                goal_type="driver_analysis",
+                confidence=0.5,
+            )
+        ],
+    )
+
+    with pytest.raises(DomainStoreError, match="already used by another intent"):
+        candidates.replace_for_intent(
+            "intent_2",
+            [
+                GoalCandidate(
+                    id="goal_candidate_shared",
+                    workspace_id=WORKSPACE_ID,
+                    intent_id="intent_2",
+                    dataset_id="dataset_sales",
+                    dataset_version_id="version_000",
+                    title="candidate two",
                     goal_type="driver_analysis",
                     confidence=0.5,
                 )

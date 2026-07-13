@@ -104,6 +104,8 @@ def create_agent_run_route():
     workspace_id = _workspace_id(workspace)
     version_id = _optional_string(payload, "versionId", "version_id")
     goal_id = _optional_string(payload, "goalId", "goal_id")
+    if goal_id is None:
+        raise AppError(ErrorCode.INVALID_REQUEST, "goalId is required")
 
     try:
         if execution_mode == "background":

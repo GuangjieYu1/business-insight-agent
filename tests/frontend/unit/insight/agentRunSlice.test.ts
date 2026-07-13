@@ -28,7 +28,7 @@ const run: AgentRun = {
     workspace_id: 'workspace_1',
     created_at: '2026-07-13T00:00:00Z',
     updated_at: '2026-07-13T00:00:01Z',
-    goal_id: null,
+    goal_id: 'goal_1',
     dataset_version_id: 'version_000',
     status: 'completed',
     current_stage: 'completed',
@@ -102,7 +102,7 @@ describe('agentRunSlice', () => {
         expect(resource.processOpen).toBe(false);
     });
 
-    it('starts a background run and tracks the stable event cursor', async () => {
+    it('starts a background run with goalId and tracks the stable event cursor', async () => {
         vi.mocked(createAgentRun).mockResolvedValue({
             run: { ...run, status: 'created', current_stage: 'created', completed_at: null, final_summary_ref: null },
             steps: [{ ...step, title: 'Analysis run started' }],
@@ -116,6 +116,7 @@ describe('agentRunSlice', () => {
         await store.dispatch(startObservableAgentRun({
             datasetId: 'dataset_sales',
             versionId: 'version_000',
+            goalId: 'goal_1',
         }));
         store.dispatch(agentRunActions.eventReceived({
             datasetId: 'dataset_sales',
@@ -136,6 +137,7 @@ describe('agentRunSlice', () => {
             {
                 datasetId: 'dataset_sales',
                 versionId: 'version_000',
+                goalId: 'goal_1',
                 executionMode: 'background',
             },
             expect.any(AbortSignal),
