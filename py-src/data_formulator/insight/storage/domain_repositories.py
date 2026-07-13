@@ -22,6 +22,8 @@ from data_formulator.insight.domain import (
     EvidenceRef,
     Experiment,
     FinalSummary,
+    GoalCandidate,
+    IntentRequest,
     ProjectMaterial,
 )
 from data_formulator.insight.domain.models import InsightModel, utc_now
@@ -147,6 +149,55 @@ class MaterialStore(_WorkspaceModelStore[ProjectMaterial]):
             directory="materials",
             model_type=ProjectMaterial,
         )
+
+
+class IntentStore(_WorkspaceModelStore[IntentRequest]):
+    def __init__(self, store: InsightStore, *, workspace_id: str) -> None:
+        super().__init__(
+            store,
+            workspace_id=workspace_id,
+            directory="intents",
+            model_type=IntentRequest,
+        )
+
+
+class GoalCandidateStore(_WorkspaceModelStore[GoalCandidate]):
+    def __init__(self, store: InsightStore, *, workspace_id: str) -> None:
+        super().__init__(
+            store,
+            workspace_id=workspace_id,
+            directory="goal_candidates",
+            model_type=GoalCandidate,
+        )
+
+    def list_for_intent(self, intent_id: str) -> list[GoalCandidate]:
+        safe_intent_id = _safe_id(intent_id, "intent_id")
+        return [
+            candidate for candidate in self.list() if candidate.intent_id == safe_intent_id
+        ]
+
+    def replace_for_intent(
+        self,
+        intent_id: str,
+        candidates: list[GoalCandidate],
+    ) -> list[GoalCandidate]:
+        safe_intent_id = _safe_id(intent_id, "intent_id")
+        if len(candidates) > 4:
+            raise DomainStoreError("An intent can store at most 4 goal candidates")
+        with self.store.workspace_lock():
+            for relative_path in list(self.store.list(self.directory)):
+                if not relative_path.endswith(".json"):
+                    continue
+                existing = self.store.read_model(relative_path, self.model_type)
+                _require_workspace(existing, self.workspace_id)
+                if existing.intent_id == safe_intent_id:
+                    self.store.remove_tree(relative_path)
+            for candidate in candidates:
+                _require_workspace(candidate, self.workspace_id)
+                if candidate.intent_id != safe_intent_id:
+                    raise DomainStoreError("GoalCandidate intent_id does not match target intent")
+                self.store.write_json(self._path(candidate.id), candidate)
+        return self.list_for_intent(safe_intent_id)
 
 
 class GoalStore(_WorkspaceModelStore[AnalysisGoal]):

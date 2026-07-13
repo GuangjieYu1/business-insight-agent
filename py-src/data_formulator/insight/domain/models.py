@@ -304,11 +304,15 @@ class CleaningOperation(InsightModel):
 
 
 class GoalType(StrEnum):
+    TREND_ANALYSIS = "trend_analysis"
+    COMPARISON = "comparison"
     DATA_QUALITY_REVIEW = "data_quality_review"
     DESCRIPTIVE_ANALYSIS = "descriptive_analysis"
     GROUP_COMPARISON = "group_comparison"
     ANOMALY_DETECTION = "anomaly_detection"
     DRIVER_ANALYSIS = "driver_analysis"
+    SEGMENT_ANALYSIS = "segment_analysis"
+    DISTRIBUTION_ANALYSIS = "distribution_analysis"
     REGRESSION = "regression"
     CLASSIFICATION = "classification"
     FORECASTING = "forecasting"
@@ -316,14 +320,100 @@ class GoalType(StrEnum):
     CAUSAL_HYPOTHESIS = "causal_hypothesis"
 
 
+class GoalFilter(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, use_enum_values=True)
+
+    column: str
+    operator: str
+    value: Any = None
+
+    @field_validator("column", "operator")
+    @classmethod
+    def _non_empty_filter_field(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("filter fields must not be empty")
+        return value.strip()
+
+
+class IntentRequest(InsightModel):
+    dataset_id: str
+    dataset_version_id: str
+    user_input: str = Field(min_length=1, max_length=2000)
+    status: Literal["created", "candidates_ready", "confirmed"] = "created"
+
+    @field_validator("dataset_id", "dataset_version_id", "user_input")
+    @classmethod
+    def _non_empty_intent_field(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("intent fields must not be empty")
+        return value.strip()
+
+
+class GoalCandidate(InsightModel):
+    intent_id: str
+    dataset_id: str
+    dataset_version_id: str
+    title: str
+    description: str = ""
+    goal_type: GoalType
+    target_metric: str | None = None
+    dimensions: list[str] = Field(default_factory=list)
+    time_column: str | None = None
+    filters: list[GoalFilter] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    assumptions: list[str] = Field(default_factory=list)
+    missing_information: list[str] = Field(default_factory=list)
+    requires_confirmation: bool = True
+
+    @field_validator("intent_id", "dataset_id", "dataset_version_id", "title")
+    @classmethod
+    def _non_empty_candidate_field(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("goal candidate fields must not be empty")
+        return value.strip()
+
+    @field_validator("target_metric", "time_column")
+    @classmethod
+    def _optional_candidate_column(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
 class AnalysisGoal(InsightModel):
+    dataset_id: str | None = None
+    dataset_version_id: str | None = None
+    intent_id: str | None = None
+    source_candidate_id: str | None = None
     goal_type: GoalType
     title: str
     target_column: str | None = None
-    task_type: Literal["descriptive", "regression", "classification", "forecasting", "anomaly"]
+    target_metric: str | None = None
+    dimensions: list[str] = Field(default_factory=list)
+    time_column: str | None = None
+    filters: list[GoalFilter] = Field(default_factory=list)
+    task_type: Literal["descriptive", "regression", "classification", "forecasting", "anomaly"] = "descriptive"
+    description: str = ""
     reasoning: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     status: Literal["candidate", "confirmed", "rejected"] = "candidate"
+
+    @field_validator(
+        "dataset_id",
+        "dataset_version_id",
+        "intent_id",
+        "source_candidate_id",
+        "target_column",
+        "target_metric",
+        "time_column",
+    )
+    @classmethod
+    def _optional_goal_reference(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
 
 class AgentRunStatus(StrEnum):
