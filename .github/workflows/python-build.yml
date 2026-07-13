@@ -48,7 +48,18 @@ jobs:
     - name: Test AgentRun Redux recovery
       run: yarn vitest run tests/frontend/unit/insight/agentRunSlice.test.ts
     - name: Test completed AgentRun final conclusion
-      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "restores a completed run"
+      id: final-conclusion-test
+      continue-on-error: true
+      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "restores a completed run" > phase5c-final-conclusion.log 2>&1
+    - name: Upload final conclusion test diagnostics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: phase5c-final-conclusion-log
+        path: phase5c-final-conclusion.log
+    - name: Enforce final conclusion test
+      if: steps.final-conclusion-test.outcome == 'failure'
+      run: exit 1
     - name: Test AgentRun process drawer
       run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "renders the complete persisted analysis process"
     - name: Test AgentRun approval handoff
