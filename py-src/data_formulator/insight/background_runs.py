@@ -9,17 +9,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import Thread
-from typing import Any
 
 from data_formulator.insight.cleaning import InsightCleaningError
-from data_formulator.insight.domain import AgentRun, AgentStep, CleaningProposal, DatasetProfile, FinalSummary
+from data_formulator.insight.domain import (
+    AgentRun,
+    AgentStep,
+    CleaningProposal,
+    DatasetProfile,
+    FinalSummary,
+)
 from data_formulator.insight.domain.models import new_id, utc_now
 from data_formulator.insight.profiling import InsightProfileError
 from data_formulator.insight.run_service import (
     InsightRunConflictError,
     InsightRunError,
     InsightRunNotFoundError,
-    RunSnapshot,
     _append_step,
     _record_failure,
     _resolve_dataset_version,
@@ -27,7 +31,12 @@ from data_formulator.insight.run_service import (
     _validate_goal,
     get_agent_run,
 )
-from data_formulator.insight.storage import DomainObjectNotFoundError, DomainStoreError, InsightStore, RunStore
+from data_formulator.insight.storage import (
+    DomainObjectNotFoundError,
+    DomainStoreError,
+    InsightStore,
+    RunStore,
+)
 from data_formulator.insight.version_cleaning import generate_cleaning_proposals_for_version
 from data_formulator.insight.version_profiling import generate_dataset_version_profile
 
@@ -48,7 +57,10 @@ class BackgroundRunExecution:
 
 
 def _run_dataset_id(run_store: RunStore, run_id: str) -> str:
-    steps = run_store.list_steps(run_id)
+    try:
+        steps = run_store.list_steps(run_id)
+    except DomainStoreError as exc:
+        raise InsightRunError(str(exc)) from exc
     if not steps:
         raise InsightRunError("AgentRun is missing its creation step")
     dataset_id = steps[0].detail.get("dataset_id")
@@ -107,6 +119,8 @@ def _require_executable_run(run_store: RunStore, run_id: str) -> AgentRun:
         run = run_store.require(run_id)
     except DomainObjectNotFoundError as exc:
         raise InsightRunNotFoundError(str(exc)) from exc
+    except DomainStoreError as exc:
+        raise InsightRunError(str(exc)) from exc
     if run.status == "cancelled":
         raise InsightRunConflictError("Cancelled AgentRun cannot be executed")
     if run.status in {"completed", "failed", "waiting_approval"}:
@@ -117,7 +131,10 @@ def _require_executable_run(run_store: RunStore, run_id: str) -> AgentRun:
 
 
 def _stop_if_cancelled(run_store: RunStore, run_id: str) -> AgentRun | None:
-    current = run_store.require(run_id)
+    try:
+        current = run_store.require(run_id)
+    except DomainStoreError as exc:
+        raise InsightRunError(str(exc)) from exc
     return current if current.status == "cancelled" else None
 
 
@@ -202,7 +219,13 @@ def execute_background_agent_run(
         cancelled = _stop_if_cancelled(run_store, run.id)
         if cancelled:
             snapshot = get_agent_run(store, workspace_id=workspace_id, run_id=run.id)
-            return BackgroundRunExecution(cancelled, snapshot.steps, None, [], snapshot.final_summary)
+            return BackgroundRunExecution(
+                cancelled,
+                snapshot.steps,
+                None,
+                [],
+                snapshot.final_summary,
+            )
 
         stage = "profiling"
         run = _transition_run(
@@ -219,7 +242,13 @@ def execute_background_agent_run(
         )
         if _stop_if_cancelled(run_store, run.id):
             snapshot = get_agent_run(store, workspace_id=workspace_id, run_id=run.id)
-            return BackgroundRunExecution(snapshot.run, snapshot.steps, profile, [], snapshot.final_summary)
+            return BackgroundRunExecution(
+                snapshot.run,
+                snapshot.steps,
+                profile,
+                [],
+                snapshot.final_summary,
+            )
         _append_step(
             run_store,
             run,
@@ -252,7 +281,13 @@ def execute_background_agent_run(
         )
         if _stop_if_cancelled(run_store, run.id):
             snapshot = get_agent_run(store, workspace_id=workspace_id, run_id=run.id)
-            return BackgroundRunExecution(snapshot.run, snapshot.steps, profile, proposals, snapshot.final_summary)
+            return BackgroundRunExecution(
+                snapshot.run,
+                snapshot.steps,
+                profile,
+                proposals,
+                snapshot.final_summary,
+            )
         _append_step(
             run_store,
             run,
@@ -288,8 +323,17 @@ def execute_background_agent_run(
                     "requires_user_approval": True,
                 },
             )
-            final_summary = None
         else:
+            current_run = run_store.require(run.id)
+            final_summary = _completed_summary(
+                workspace_id=workspace_id,
+                run=current_run,
+                profile=profile,
+            )
+            # Persist the final presentation before publishing the terminal
+            # event. SSE consumers that receive run_completed can immediately
+            # recover the complete Final Conclusion View via GET /runs/<id>.
+            run_store.write_final_summary(final_summary)
             run = _transition_run(
                 run_store,
                 run_store.require(run.id),
@@ -304,15 +348,9 @@ def execute_background_agent_run(
                 title="Analysis run completed",
                 status="completed",
                 progress_text="No deterministic cleaning approval is required for this version.",
-                output_refs=[profile.id],
+                output_refs=[profile.id, final_summary.id],
+                detail={"final_summary_id": final_summary.id},
             )
-            final_summary = _completed_summary(
-                workspace_id=workspace_id,
-                run=run,
-                profile=profile,
-            )
-            run_store.write_final_summary(final_summary)
-            run = run_store.require(run.id)
 
         snapshot = get_agent_run(store, workspace_id=workspace_id, run_id=run.id)
         return BackgroundRunExecution(
@@ -376,7 +414,10 @@ def list_agent_runs(
     dataset_id: str | None = None,
 ) -> list[AgentRun]:
     run_store = RunStore(store, workspace_id=workspace_id)
-    runs = run_store.list()
+    try:
+        runs = run_store.list()
+    except DomainStoreError as exc:
+        raise InsightRunError(str(exc)) from exc
     if dataset_id is not None:
         filtered: list[AgentRun] = []
         for run in runs:
@@ -384,6 +425,8 @@ def list_agent_runs(
                 if _run_dataset_id(run_store, run.id) == dataset_id:
                     filtered.append(run)
             except InsightRunError:
+                # A corrupt legacy Run must not prevent recovery of healthy
+                # Runs for the same Dataset.
                 continue
         runs = filtered
     return sorted(runs, key=lambda item: (item.created_at, item.id), reverse=True)
