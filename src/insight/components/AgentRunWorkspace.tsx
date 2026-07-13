@@ -85,8 +85,10 @@ export function AgentRunWorkspace({ datasetId, versionId, onOpenCleaning }: Agen
     }, [resource?.lastEventId]);
 
     useEffect(() => {
-        void dispatch(restoreLatestAgentRun({ datasetId }));
-    }, [datasetId, dispatch]);
+        if (!resource || resource.status === 'idle') {
+            void dispatch(restoreLatestAgentRun({ datasetId }));
+        }
+    }, [datasetId, dispatch, resource, resource?.status]);
 
     useEffect(() => {
         if (!run?.id || !shouldStream) return undefined;
