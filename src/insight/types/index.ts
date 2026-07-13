@@ -53,6 +53,84 @@ export interface InsightProject extends InsightEntityBase {
     active_goal_id: string | null;
 }
 
+export type GoalType =
+    | 'trend_analysis'
+    | 'comparison'
+    | 'data_quality_review'
+    | 'descriptive_analysis'
+    | 'group_comparison'
+    | 'anomaly_detection'
+    | 'driver_analysis'
+    | 'segment_analysis'
+    | 'distribution_analysis'
+    | 'regression'
+    | 'classification'
+    | 'forecasting'
+    | 'scenario_analysis'
+    | 'causal_hypothesis';
+
+export interface GoalFilter {
+    column: string;
+    operator: string;
+    value: unknown;
+}
+
+export interface ClarificationOption {
+    label: string;
+    label_code: string | null;
+}
+
+export interface ClarificationQuestion {
+    text: string;
+    text_code: string | null;
+    responseType: 'single_choice' | 'free_text';
+    options: ClarificationOption[];
+}
+
+export interface IntentRequest extends InsightEntityBase {
+    dataset_id: string;
+    dataset_version_id: string;
+    user_input: string;
+    clarification_questions: ClarificationQuestion[];
+    status: 'created' | 'candidates_ready' | 'confirmed';
+}
+
+export interface GoalCandidate extends InsightEntityBase {
+    intent_id: string;
+    dataset_id: string;
+    dataset_version_id: string;
+    title: string;
+    description: string;
+    goal_type: GoalType;
+    target_metric: string | null;
+    dimensions: string[];
+    time_column: string | null;
+    filters: GoalFilter[];
+    confidence: number;
+    assumptions: string[];
+    missing_information: string[];
+    requires_confirmation: boolean;
+}
+
+export interface AnalysisGoal extends InsightEntityBase {
+    dataset_id: string | null;
+    dataset_version_id: string | null;
+    intent_id: string | null;
+    source_candidate_id: string | null;
+    goal_type: GoalType;
+    title: string;
+    target_column: string | null;
+    target_metric: string | null;
+    dimensions: string[];
+    time_column: string | null;
+    filters: GoalFilter[];
+    task_type: 'descriptive' | 'regression' | 'classification' | 'forecasting' | 'anomaly';
+    description: string;
+    reasoning: string[];
+    confidence: number;
+    status: 'candidate' | 'confirmed' | 'rejected';
+}
+
 export interface Dataset extends InsightEntityBase {
     name: string;
     source_material_id: string | null;
@@ -195,6 +273,26 @@ export interface RegisterDatasetResponse {
     dataset: Dataset;
     version: DatasetVersion;
     created: boolean;
+}
+
+export interface IntentSnapshotResponse {
+    intent: IntentRequest;
+    goalCandidates: GoalCandidate[];
+    questions: ClarificationQuestion[];
+}
+
+export interface GoalMutationResponse {
+    goal: AnalysisGoal;
+    project: InsightProject;
+    created: boolean;
+}
+
+export interface GoalReadResponse {
+    goal: AnalysisGoal;
+}
+
+export interface ProjectReadResponse {
+    project: InsightProject;
 }
 
 export interface ReadDatasetProfileResponse {

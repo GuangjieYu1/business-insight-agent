@@ -67,6 +67,10 @@ vi.mock('../../../../src/insight/components/ProfileOverviewCards', () => ({
 }));
 
 vi.mock('react-i18next', () => ({
+    initReactI18next: {
+        type: '3rdParty',
+        init: () => undefined,
+    },
     useTranslation: () => ({
         t: (key: string) => ({
             'insight.tabs.ariaLabel': 'Business insight workspace tabs',
@@ -91,13 +95,15 @@ describe('InsightWorkspacePane request lifecycle', () => {
     it('does not abort the active request when status changes to registering', () => {
         const { rerender } = render(<InsightWorkspacePane analysisView={<div>analysis</div>} />);
 
-        fireEvent.click(screen.getByRole('tab', { name: 'Data Profile' }));
         expect(dispatch).toHaveBeenCalledOnce();
         expect(abortRequest).not.toHaveBeenCalled();
 
         profilingStatus = 'registering';
         rerender(<InsightWorkspacePane analysisView={<div>analysis</div>} />);
 
+        fireEvent.click(screen.getByRole('tab', { name: 'Data Profile' }));
+
+        expect(dispatch).toHaveBeenCalledOnce();
         expect(abortRequest).not.toHaveBeenCalled();
         expect(screen.getByText('Registering')).toBeInTheDocument();
     });

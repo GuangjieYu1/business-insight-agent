@@ -74,6 +74,7 @@ describe('agentRunClient', () => {
         await createAgentRun({
             datasetId: 'dataset_sales',
             versionId: 'version_002',
+            goalId: 'goal_1',
         });
 
         expect(apiRequest).toHaveBeenCalledWith('/api/insight/runs', expect.objectContaining({
@@ -82,7 +83,7 @@ describe('agentRunClient', () => {
             body: JSON.stringify({
                 datasetId: 'dataset_sales',
                 versionId: 'version_002',
-                goalId: undefined,
+                goalId: 'goal_1',
                 executionMode: 'background',
             }),
         }));
