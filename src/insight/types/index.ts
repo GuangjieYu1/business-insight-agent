@@ -209,3 +209,93 @@ export interface InsightError {
     httpStatus?: number;
     requestId?: string;
 }
+
+export type AgentRunStatus =
+    | 'created'
+    | 'context_building'
+    | 'profiling'
+    | 'waiting_goal_confirmation'
+    | 'planning'
+    | 'waiting_approval'
+    | 'cleaning'
+    | 'analyzing'
+    | 'experimenting'
+    | 'synthesizing'
+    | 'completed'
+    | 'failed'
+    | 'cancelled';
+
+export type AgentStepType =
+    | 'progress'
+    | 'tool_call'
+    | 'observation'
+    | 'approval'
+    | 'artifact'
+    | 'claim'
+    | 'error';
+
+export type AgentStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface AgentRun extends InsightEntityBase {
+    goal_id: string | null;
+    dataset_version_id: string | null;
+    status: AgentRunStatus;
+    current_stage: string;
+    started_at: string | null;
+    completed_at: string | null;
+    final_summary_ref: string | null;
+}
+
+export interface AgentStep extends InsightEntityBase {
+    run_id: string;
+    type: AgentStepType;
+    title: string;
+    status: AgentStepStatus;
+    started_at: string | null;
+    completed_at: string | null;
+    input_refs: string[];
+    output_refs: string[];
+    progress_text: string;
+    detail: Record<string, unknown>;
+    collapsed_by_default: boolean;
+}
+
+export interface FinalSummary extends InsightEntityBase {
+    run_id: string;
+    title: string;
+    executive_summary: string;
+    claim_refs: string[];
+    operation_refs: string[];
+    metric_changes: Array<Record<string, unknown>>;
+    artifact_refs: string[];
+    limitations: string[];
+    next_steps: string[];
+}
+
+export interface AgentRunSnapshot {
+    run: AgentRun;
+    steps: AgentStep[];
+    finalSummary: FinalSummary | null;
+}
+
+export interface CreateAgentRunResponse extends AgentRunSnapshot {
+    profile: DatasetProfile | null;
+    proposals: CleaningProposal[];
+    executionMode: 'synchronous' | 'background';
+}
+
+export interface AgentRunEventPayload {
+    eventType: string;
+    runId: string;
+    stepId?: string;
+    stage?: string;
+    status?: AgentStepStatus;
+    runStatus?: AgentRunStatus;
+    title?: string;
+    progressText?: string;
+    detail?: Record<string, unknown>;
+    inputRefs?: string[];
+    outputRefs?: string[];
+    collapsedByDefault?: boolean;
+    timestamp: string;
+}
