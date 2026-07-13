@@ -39,6 +39,8 @@ const RUN_EVENT_TYPES = [
     'run_completed',
     'run_failed',
     'run_cancelled',
+    'user_input_required',
+    'run_interrupted',
     'heartbeat',
 ] as const;
 
@@ -72,6 +74,18 @@ export async function listAgentRuns(
         { method: 'GET', signal },
     );
     return data.runs;
+}
+
+export async function listDataAgentLedgerRuns(
+    tableName: string,
+    signal?: AbortSignal,
+): Promise<AgentRun[]> {
+    const params = new URLSearchParams({ tableName });
+    const { data } = await apiRequest<{ runs: AgentRun[] }>(
+        insightUrl(`/runs?${params.toString()}`),
+        { method: 'GET', signal },
+    );
+    return data.runs.filter((run) => run.execution_kind === 'data_agent_ledger');
 }
 
 export async function readAgentRun(

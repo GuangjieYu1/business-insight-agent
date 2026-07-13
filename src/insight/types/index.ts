@@ -319,9 +319,11 @@ export type AgentRunStatus =
     | 'analyzing'
     | 'experimenting'
     | 'synthesizing'
+    | 'waiting_user_input'
     | 'completed'
     | 'failed'
-    | 'cancelled';
+    | 'cancelled'
+    | 'interrupted';
 
 export type AgentStepType =
     | 'progress'
@@ -337,6 +339,10 @@ export type AgentStepStatus = 'pending' | 'running' | 'completed' | 'failed' | '
 export interface AgentRun extends InsightEntityBase {
     goal_id: string | null;
     dataset_version_id: string | null;
+    execution_kind: string;
+    source_table_refs: string[];
+    interrupted_at: string | null;
+    resume_cursor_hash: string | null;
     status: AgentRunStatus;
     current_stage: string;
     started_at: string | null;
