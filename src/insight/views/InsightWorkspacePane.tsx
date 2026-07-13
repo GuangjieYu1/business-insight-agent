@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { dfSelectors, type DataFormulatorState } from '../../app/dfSlice';
 import type { AppDispatch, RootState } from '../../app/store';
 import type { DictTable } from '../../components/ComponentType';
+import { AgentRunWorkspace } from '../components/AgentRunWorkspace';
 import { ProfileColumnsTable } from '../components/ProfileColumnsTable';
 import { ProfileIssueList } from '../components/ProfileIssueList';
 import { ProfileOverviewCards } from '../components/ProfileOverviewCards';
@@ -28,7 +29,7 @@ import {
     type ProfilingStatus,
 } from '../store/profilingSlice';
 
-type InsightTab = 'analysis' | 'profiling' | 'cleaning';
+type InsightTab = 'agent' | 'analysis' | 'profiling' | 'cleaning';
 
 const statusMessageKey: Record<Exclude<ProfilingStatus, 'ready' | 'error' | 'idle'>, string> = {
     registering: 'insight.profile.loading.registering',
@@ -95,7 +96,7 @@ export interface InsightWorkspacePaneProps {
 export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps) {
     const dispatch = useDispatch<AppDispatch>();
     const { t } = useTranslation();
-    const [activeTab, setActiveTab] = useState<InsightTab>('analysis');
+    const [activeTab, setActiveTab] = useState<InsightTab>('agent');
 
     const activeWorkspace = useSelector((state: RootState) => state.activeWorkspace);
     const activeTable = useSelector(resolveActiveTable);
@@ -129,7 +130,7 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
     }, [activeTable, activeWorkspace?.id, dispatch]);
 
     useEffect(() => {
-        const needsDataset = activeTab === 'profiling' || activeTab === 'cleaning';
+        const needsDataset = activeTab === 'agent' || activeTab === 'profiling' || activeTab === 'cleaning';
         if (!needsDataset || !activeWorkspace?.id || !activeTable || !requestKey) {
             return;
         }
@@ -223,6 +224,25 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
         return <VersionedCleaningWorkspacePanel datasetId={resource.datasetId} />;
     };
 
+    const renderAgentContent = () => {
+        const sharedState = renderSharedDatasetState();
+        if (sharedState) return sharedState;
+        if (!resource?.datasetId || !resource.profile) return <EmptyProfileState t={t} />;
+        return (
+            <AgentRunWorkspace
+                datasetId={resource.datasetId}
+                versionId={resource.profile.version_id}
+                onOpenCleaning={() => setActiveTab('cleaning')}
+            />
+        );
+    };
+
+    const renderManagedContent = () => {
+        if (activeTab === 'agent') return renderAgentContent();
+        if (activeTab === 'profiling') return renderProfilingContent();
+        return renderCleaningContent();
+    };
+
     return (
         <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 1.5, pt: 1 }}>
@@ -230,7 +250,10 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
                     value={activeTab}
                     onChange={(_, value: InsightTab) => setActiveTab(value)}
                     aria-label={t('insight.tabs.ariaLabel')}
+                    variant="scrollable"
+                    scrollButtons="auto"
                 >
+                    <Tab value="agent" label={t('insight.tabs.agent')} />
                     <Tab value="analysis" label={t('insight.tabs.analysis')} />
                     <Tab value="profiling" label={t('insight.tabs.profiling')} />
                     <Tab value="cleaning" label={t('insight.tabs.cleaning')} />
@@ -241,7 +264,7 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
                     <Box sx={{ width: '100%', height: '100%' }}>{analysisView}</Box>
                 ) : (
                     <Box sx={{ height: '100%', overflow: 'auto', px: 2, py: 2 }}>
-                        {activeTab === 'profiling' ? renderProfilingContent() : renderCleaningContent()}
+                        {renderManagedContent()}
                     </Box>
                 )}
             </Box>
