@@ -10,9 +10,13 @@ const translate = (key: string, params?: Record<string, unknown>) => {
     return key;
 };
 
-vi.mock('react-i18next', () => ({
-    useTranslation: () => ({ t: translate }),
-}));
+vi.mock('react-i18next', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('react-i18next')>();
+    return {
+        ...actual,
+        useTranslation: () => ({ t: translate }),
+    };
+});
 
 vi.mock('../../../../src/insight/api/agentRunClient', () => ({
     cancelAgentRun: vi.fn(),
