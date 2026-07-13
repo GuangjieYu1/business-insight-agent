@@ -11,6 +11,7 @@ from flask import Flask
 from data_formulator.datalake.workspace import Workspace
 from data_formulator.error_handler import register_error_handlers
 from data_formulator.insight.domain import AgentRun, AgentStep
+from data_formulator.insight.goal_service import create_analysis_goal
 from data_formulator.insight.registry import register_dataset_version_zero
 from data_formulator.insight.routes import insight_project_bp
 from data_formulator.insight.run_events import (
@@ -45,6 +46,19 @@ def _dirty_store(tmp_path: Path) -> LocalInsightStore:
     return store
 
 
+def _confirmed_goal_id(store: LocalInsightStore) -> str:
+    return create_analysis_goal(
+        store,
+        workspace_id=WORKSPACE_ID,
+        dataset_id=DATASET_ID,
+        dataset_version_id="version_000",
+        payload={
+            "title": "Review data quality",
+            "goalType": "data_quality_review",
+        },
+    ).goal.id
+
+
 def _parse_sse(text: str) -> list[dict[str, object]]:
     parsed: list[dict[str, object]] = []
     for block in text.split("\n\n"):
@@ -69,6 +83,7 @@ def test_projected_run_events_are_ordered_and_replayable(tmp_path: Path):
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id=DATASET_ID,
+        goal_id=_confirmed_goal_id(store),
     )
     snapshot = get_agent_run(
         store,
@@ -116,6 +131,7 @@ def test_active_run_stream_emits_heartbeat_after_persisted_events(tmp_path: Path
         id="run_active",
         workspace_id=WORKSPACE_ID,
         dataset_version_id="version_000",
+        goal_id="goal_confirmed",
         status="profiling",
         current_stage="profiling",
         started_at=datetime.now(timezone.utc),
@@ -172,6 +188,22 @@ def _app_with_workspace(monkeypatch, workspace: Workspace) -> Flask:
     return app
 
 
+def _create_goal_via_api(client, headers: dict[str, str]) -> str:
+    response = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "title": "Review data quality",
+            "goalType": "data_quality_review",
+        },
+        headers=headers,
+    )
+    payload = response.get_json()
+    assert payload["status"] == "success"
+    return payload["data"]["goal"]["id"]
+
+
 def _create_waiting_run(client, headers: dict[str, str]) -> str:
     registered = client.post(
         "/api/insight/datasets",
@@ -180,9 +212,10 @@ def _create_waiting_run(client, headers: dict[str, str]) -> str:
     )
     assert registered.get_json()["status"] == "success"
 
+    goal_id = _create_goal_via_api(client, headers)
     created = client.post(
         "/api/insight/runs",
-        json={"datasetId": DATASET_ID},
+        json={"datasetId": DATASET_ID, "versionId": "version_000", "goalId": goal_id},
         headers=headers,
     )
     payload = created.get_json()

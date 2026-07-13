@@ -470,6 +470,52 @@ def test_goal_patch_rejects_binding_changes(tmp_path: Path, monkeypatch):
     assert "immutable" in patched_payload["error"]["message"]
 
 
+def test_goal_patch_allows_explicit_null_to_clear_optional_fields(tmp_path: Path, monkeypatch):
+    _, client, headers = _seed_workspace(tmp_path, monkeypatch)
+    intent_payload = _create_manual_intent(client, headers)
+    candidate = intent_payload["goalCandidates"][0]
+    goal_response = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "sourceCandidateId": candidate["id"],
+        },
+        headers=headers,
+    )
+    goal_id = goal_response.get_json()["data"]["goal"]["id"]
+
+    patched = client.patch(
+        f"/api/insight/goals/{goal_id}",
+        json={
+            "targetMetric": None,
+            "timeColumn": None,
+            "description": None,
+            "dimensions": None,
+            "filters": None,
+            "reasoning": None,
+        },
+        headers=headers,
+    )
+    patched_payload = patched.get_json()["data"]["goal"]
+    assert patched_payload["target_metric"] is None
+    assert patched_payload["target_column"] is None
+    assert patched_payload["time_column"] is None
+    assert patched_payload["description"] == ""
+    assert patched_payload["dimensions"] == []
+    assert patched_payload["filters"] == []
+    assert patched_payload["reasoning"] == []
+
+    loaded = client.get(
+        f"/api/insight/goals/{goal_id}",
+        headers=headers,
+    )
+    loaded_goal = loaded.get_json()["data"]["goal"]
+    assert loaded_goal["target_metric"] is None
+    assert loaded_goal["time_column"] is None
+    assert loaded_goal["dimensions"] == []
+
+
 def test_goal_creation_idempotence_normalizes_filter_order(tmp_path: Path, monkeypatch):
     _, client, headers = _seed_workspace(tmp_path, monkeypatch)
 

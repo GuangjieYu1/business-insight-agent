@@ -24,11 +24,11 @@ export interface SaveGoalParams {
     title?: string;
     goalType?: GoalType;
     targetMetric?: string | null;
-    dimensions?: string[];
+    dimensions?: string[] | null;
     timeColumn?: string | null;
-    filters?: GoalFilter[];
-    description?: string;
-    reasoning?: string[];
+    filters?: GoalFilter[] | null;
+    description?: string | null;
+    reasoning?: string[] | null;
     confidence?: number;
     taskType?: 'descriptive' | 'regression' | 'classification' | 'forecasting' | 'anomaly';
 }
@@ -37,11 +37,11 @@ export interface UpdateGoalParams {
     title?: string;
     goalType?: GoalType;
     targetMetric?: string | null;
-    dimensions?: string[];
+    dimensions?: string[] | null;
     timeColumn?: string | null;
-    filters?: GoalFilter[];
-    description?: string;
-    reasoning?: string[];
+    filters?: GoalFilter[] | null;
+    description?: string | null;
+    reasoning?: string[] | null;
     confidence?: number;
     status?: 'candidate' | 'confirmed' | 'rejected';
     taskType?: 'descriptive' | 'regression' | 'classification' | 'forecasting' | 'anomaly';

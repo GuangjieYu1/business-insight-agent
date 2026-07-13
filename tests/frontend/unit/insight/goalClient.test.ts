@@ -113,4 +113,34 @@ describe('goalClient', () => {
             }),
         );
     });
+
+    it('preserves explicit nulls when clearing optional goal fields', async () => {
+        vi.mocked(apiRequest).mockResolvedValueOnce({
+            data: { goal: { id: 'goal_1' }, project: { id: 'project_1' }, created: false } as any,
+        });
+
+        await updateAnalysisGoal('goal/1', {
+            targetMetric: null,
+            timeColumn: null,
+            dimensions: null,
+            filters: null,
+            description: null,
+            reasoning: null,
+        });
+
+        expect(apiRequest).toHaveBeenCalledWith(
+            '/api/insight/goals/goal%2F1',
+            expect.objectContaining({
+                method: 'PATCH',
+                body: JSON.stringify({
+                    targetMetric: null,
+                    timeColumn: null,
+                    dimensions: null,
+                    filters: null,
+                    description: null,
+                    reasoning: null,
+                }),
+            }),
+        );
+    });
 });

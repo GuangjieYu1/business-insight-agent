@@ -96,25 +96,29 @@ def _dedupe_text(items: list[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(item for item in items if item and item.strip()))
 
 
+def _bilingual(english: str, chinese: str) -> str:
+    return f"{english} / {chinese}"
+
+
 def _column_risks(column, role: str) -> tuple[str, ...]:
     issues = {str(issue) for issue in column.quality_issue_types}
     risks: list[str] = []
     if "high_missing_column" in issues:
-        risks.append(f"列 {column.name} 缺失比例较高")
+        risks.append(_bilingual(f"Column {column.name} has a high missing ratio", f"列 {column.name} 缺失比例较高"))
     if role == "target" and "numeric_parse_conflict" in issues:
-        risks.append(f"列 {column.name} 存在数值解析冲突")
+        risks.append(_bilingual(f"Column {column.name} has numeric parsing conflicts", f"列 {column.name} 存在数值解析冲突"))
     if role == "time" and "datetime_parse_conflict" in issues:
-        risks.append(f"列 {column.name} 存在日期解析冲突")
+        risks.append(_bilingual(f"Column {column.name} has datetime parsing conflicts", f"列 {column.name} 存在日期解析冲突"))
     if "mixed_type_column" in issues:
-        risks.append(f"列 {column.name} 类型混杂")
+        risks.append(_bilingual(f"Column {column.name} mixes multiple value types", f"列 {column.name} 类型混杂"))
     if "whitespace_pollution" in issues:
-        risks.append(f"列 {column.name} 存在空白污染")
+        risks.append(_bilingual(f"Column {column.name} contains whitespace pollution", f"列 {column.name} 存在空白污染"))
     if "dirty_character_column" in issues:
-        risks.append(f"列 {column.name} 存在脏字符")
+        risks.append(_bilingual(f"Column {column.name} contains dirty characters", f"列 {column.name} 存在非法字符"))
     if "high_cardinality_id_like" in issues:
-        risks.append(f"列 {column.name} 更像标识列而非分析字段")
+        risks.append(_bilingual(f"Column {column.name} looks more like an identifier than an analysis field", f"列 {column.name} 更像标识列而非分析字段"))
     if "meaningless_header_candidate" in issues or "invalid_header" in issues:
-        risks.append(f"列 {column.name} 表头语义不稳定")
+        risks.append(_bilingual(f"Column {column.name} has unstable header semantics", f"列 {column.name} 表头语义不稳定"))
     return _dedupe_text(risks)
 
 def _role_tier(column, role: str, concepts: frozenset[str]) -> int:
@@ -238,9 +242,23 @@ def _clarification_questions(query: str, metric_fields: list[RankedField], time_
     trend_requested = _contains(compact_query, TREND_TERMS)
     questions: list[ClarificationQuestion] = []
     if _metric_ambiguous(metric_fields):
-        questions.append(ClarificationQuestion(text="请确认要分析的指标列", text_code="insight.metricQuestion", responseType="single_choice", options=[ClarificationOption(label=item.name, label_code="insight.column.option") for item in metric_fields[:4]]))
+        questions.append(
+            ClarificationQuestion(
+                text="请确认要分析的指标列",
+                text_code="insight.metricQuestion",
+                responseType="single_choice",
+                options=[ClarificationOption(label=item.name, label_code=None) for item in metric_fields[:4]],
+            )
+        )
     if len(questions) < MAX_QUESTIONS and trend_requested and _time_ambiguous(time_fields):
-        questions.append(ClarificationQuestion(text="请确认用于趋势分析的时间列", text_code="insight.timeQuestion", responseType="single_choice", options=[ClarificationOption(label=item.name, label_code="insight.column.option") for item in time_fields[:4]]))
+        questions.append(
+            ClarificationQuestion(
+                text="请确认用于趋势分析的时间列",
+                text_code="insight.timeQuestion",
+                responseType="single_choice",
+                options=[ClarificationOption(label=item.name, label_code=None) for item in time_fields[:4]],
+            )
+        )
     return questions[:MAX_QUESTIONS]
 
 
@@ -270,12 +288,10 @@ def generate_goal_candidates(*, workspace_id: str, intent_id: str, dataset_id: s
     asks_compare = _contains(compact_query, COMPARE_TERMS)
     asks_segment = _contains(compact_query, SEGMENT_TERMS)
     asks_distribution = _contains(compact_query, DISTRIBUTION_TERMS)
-
     metric_fields = _rank_fields(user_input, profile, "target")
     time_fields = _rank_fields(user_input, profile, "time")
     dimension_fields = _rank_fields(user_input, profile, "dimension")
     questions = _clarification_questions(user_input, metric_fields, time_fields)
-
     best_metric = metric_fields[0] if metric_fields else None
     best_time = time_fields[0] if time_fields else None
     best_dims = tuple(item.name for item in dimension_fields[:2])
@@ -287,56 +303,52 @@ def generate_goal_candidates(*, workspace_id: str, intent_id: str, dataset_id: s
     metric_ambiguous = _metric_ambiguous(metric_fields)
     target = best_metric.name if best_metric else None
     trusted_time = best_time.name if best_time and best_time.role_tier > 0 else None
-
     drafted: list[tuple[tuple[str, str | None, str | None], GoalCandidate, tuple[int, int, int, int, int, int, str, str]]] = []
 
     def add(goal_type: GoalType, title: str, description: str, *, target_metric: str | None, dimensions: tuple[str, ...] = (), time_column: str | None = None, filters_value: tuple[GoalFilter, ...] = (), missing: list[str] | None = None, assumptions: list[str] | None = None, trigger: int = 3, target_certainty: int = 0, time_certainty: int = 0, dimension_certainty: int = 0) -> None:
         missing_info = _dedupe_text(missing or [])
         assumption_info = _dedupe_text(assumptions or [])
         score = _score(trigger, target_certainty, time_certainty, dimension_certainty, len(missing_info), len(assumption_info), goal_type, title)
-        candidate = _make_candidate(workspace_id, intent_id, dataset_id, dataset_version_id, goal_type, title, description, target_metric, dimensions, time_column, filters_value, missing_info, assumption_info, score)
-        drafted.append(((goal_type.value, target_metric, time_column), candidate, score))
+        drafted.append(((goal_type.value, target_metric, time_column), _make_candidate(workspace_id, intent_id, dataset_id, dataset_version_id, goal_type, title, description, target_metric, dimensions, time_column, filters_value, missing_info, assumption_info, score), score))
 
     if asks_trend and trusted_time is not None:
         missing = []
         assumptions = list(best_metric.risks if best_metric else ()) + list(best_time.risks if best_time else ())
         if target is None:
-            missing.append("尚未识别出明确的数值指标列")
+            missing.append(_bilingual("A clear numeric metric column is still missing", "尚未识别出明确的数值指标列"))
         if metric_ambiguous:
-            missing.append("目标指标存在多个候选列，建议先确认具体指标")
-        add(GoalType.TREND_ANALYSIS, f"分析{target or '核心指标'}的近期趋势", f"围绕 {trusted_time} 观察 {target or '核心指标'} 的时间变化，并结合当前版本的体检结果解释趋势可信度。", target_metric=target, time_column=trusted_time, filters_value=filters, missing=missing, assumptions=assumptions, trigger=6, target_certainty=best_metric.certainty if best_metric else 0, time_certainty=best_time.certainty if best_time else 0)
+            missing.append(_bilingual("The target metric is still ambiguous; confirm the exact metric column", "目标指标仍有歧义，建议先确认具体指标列"))
+        add(GoalType.TREND_ANALYSIS, _bilingual(f"Recent trend of {target or 'the core metric'}", f"分析{target or '核心指标'}的近期趋势"), _bilingual(f"Review how {target or 'the core metric'} changes over {trusted_time}.", f"围绕 {trusted_time} 观察 {target or '核心指标'} 的时间变化趋势。"), target_metric=target, time_column=trusted_time, filters_value=filters, missing=missing, assumptions=assumptions, trigger=6, target_certainty=best_metric.certainty if best_metric else 0, time_certainty=best_time.certainty if best_time else 0)
     elif asks_trend and target and best_dims:
-        add(GoalType.COMPARISON, f"比较{target}在{best_dims[0]}上的差异", f"由于当前版本缺少可信时间列，先按 {best_dims[0]} 对 {target} 做静态对比。", target_metric=target, dimensions=(best_dims[0],), filters_value=_dimension_filters(user_input, profile), missing=["未检测到可信时间列，当前更适合先做对比、分群或数据质量检查"], assumptions=list(best_metric.risks if best_metric else ()), trigger=4, target_certainty=best_metric.certainty if best_metric else 0, dimension_certainty=dimension_fields[0].certainty if dimension_fields else 0)
+        add(GoalType.COMPARISON, _bilingual(f"Compare {target} by {best_dims[0]}", f"比较{target}在{best_dims[0]}上的差异"), _bilingual(f"No trusted time column was detected, so start with a static comparison of {target} by {best_dims[0]}.", f"由于未检测到可信时间列，先按 {best_dims[0]} 对 {target} 做静态对比。"), target_metric=target, dimensions=(best_dims[0],), filters_value=_dimension_filters(user_input, profile), missing=[_bilingual("No trusted time column was detected, so trend analysis is not ready yet", "未检测到可信时间列，当前更适合先做对比或分群分析")] , assumptions=list(best_metric.risks if best_metric else ()), trigger=4, target_certainty=best_metric.certainty if best_metric else 0, dimension_certainty=dimension_fields[0].certainty if dimension_fields else 0)
 
     if asks_driver and target:
-        missing = ["目标指标存在多个候选列，驱动分析前建议先确认指标"] if metric_ambiguous else []
+        missing = [] if not metric_ambiguous else [_bilingual("The target metric is still ambiguous; confirm the metric before driver analysis", "目标指标仍有歧义，驱动分析前建议先确认指标列")]
         if not best_dims:
-            missing.append("尚未识别出稳定的分组维度")
-        assumptions = list(best_metric.risks if best_metric else ())
-        for item in dimension_fields[:2]:
-            assumptions.extend(item.risks)
-        add(GoalType.DRIVER_ANALYSIS, f"分析{target}的主要影响因素", f"基于当前版本，优先从 {'、'.join(best_dims) if best_dims else '可用维度'} 解释 {target} 的变化。", target_metric=target, dimensions=best_dims, time_column=trusted_time, filters_value=filters, missing=missing, assumptions=assumptions, trigger=5, target_certainty=best_metric.certainty if best_metric else 0, time_certainty=best_time.certainty if best_time and trusted_time else 0, dimension_certainty=dimension_fields[0].certainty if dimension_fields else 0)
+            missing.append(_bilingual("No stable grouping dimensions were identified yet", "尚未识别出稳定的分组维度"))
+        assumptions = list(best_metric.risks if best_metric else ()) + [risk for item in dimension_fields[:2] for risk in item.risks]
+        zh_dims = "、".join(best_dims) if best_dims else "可用维度"
+        en_dims = ", ".join(best_dims) if best_dims else "available dimensions"
+        add(GoalType.DRIVER_ANALYSIS, _bilingual(f"Drivers of {target}", f"分析{target}的主要驱动因素"), _bilingual(f"Use {en_dims} to explain changes in {target}.", f"优先从 {zh_dims} 解释 {target} 的变化。"), target_metric=target, dimensions=best_dims, time_column=trusted_time, filters_value=filters, missing=missing, assumptions=assumptions, trigger=5, target_certainty=best_metric.certainty if best_metric else 0, time_certainty=best_time.certainty if best_time and trusted_time else 0, dimension_certainty=dimension_fields[0].certainty if dimension_fields else 0)
 
     if target and best_dims and (asks_compare or asks_trend or asks_driver or asks_segment):
-        add(GoalType.COMPARISON, f"比较{target}在{best_dims[0]}上的差异", f"以 {best_dims[0]} 为主维度，对 {target} 做分组对比，观察差异是否稳定。", target_metric=target, dimensions=(best_dims[0],), filters_value=_dimension_filters(user_input, profile), missing=["目标指标存在多个候选列，建议先确认比较指标"] if metric_ambiguous else [], assumptions=list(best_metric.risks if best_metric else ()) + list(dimension_fields[0].risks if dimension_fields else ()), trigger=5 if asks_compare else 3, target_certainty=best_metric.certainty if best_metric else 0, dimension_certainty=dimension_fields[0].certainty if dimension_fields else 0)
-        add(GoalType.SEGMENT_ANALYSIS, f"按{'、'.join(best_dims)}分析{target}表现", f"围绕 {'、'.join(best_dims)} 对 {target} 做分群观察，识别表现差异和潜在异常群体。", target_metric=target, dimensions=best_dims, filters_value=_dimension_filters(user_input, profile), missing=["目标指标存在多个候选列，建议先确认分群指标"] if metric_ambiguous else [], assumptions=list(best_metric.risks if best_metric else ()) + [risk for item in dimension_fields[:2] for risk in item.risks], trigger=5 if asks_segment else 3, target_certainty=best_metric.certainty if best_metric else 0, dimension_certainty=dimension_fields[0].certainty if dimension_fields else 0)
+        add(GoalType.COMPARISON, _bilingual(f"Compare {target} by {best_dims[0]}", f"比较{target}在{best_dims[0]}上的差异"), _bilingual(f"Group {target} by {best_dims[0]} and compare how stable the differences are.", f"以 {best_dims[0]} 为主维度，对 {target} 做分组对比，观察差异是否稳定。"), target_metric=target, dimensions=(best_dims[0],), filters_value=_dimension_filters(user_input, profile), missing=[_bilingual("The target metric is still ambiguous; confirm the comparison metric first", "目标指标仍有歧义，建议先确认对比指标")] if metric_ambiguous else [], assumptions=list(best_metric.risks if best_metric else ()) + list(dimension_fields[0].risks if dimension_fields else ()), trigger=5 if asks_compare else 3, target_certainty=best_metric.certainty if best_metric else 0, dimension_certainty=dimension_fields[0].certainty if dimension_fields else 0)
+        add(GoalType.SEGMENT_ANALYSIS, _bilingual(f"Segment view of {target}", f"按{'、'.join(best_dims)}分析{target}表现"), _bilingual(f"Compare {target} across {', '.join(best_dims)} to spot segment gaps or unusual groups.", f"围绕 {'、'.join(best_dims)} 对 {target} 做分群观察，识别表现差异和潜在异常群体。"), target_metric=target, dimensions=best_dims, filters_value=_dimension_filters(user_input, profile), missing=[_bilingual("The target metric is still ambiguous; confirm the segment metric first", "目标指标仍有歧义，建议先确认分群指标")] if metric_ambiguous else [], assumptions=list(best_metric.risks if best_metric else ()) + [risk for item in dimension_fields[:2] for risk in item.risks], trigger=5 if asks_segment else 3, target_certainty=best_metric.certainty if best_metric else 0, dimension_certainty=dimension_fields[0].certainty if dimension_fields else 0)
 
     if asks_distribution and target:
-        add(GoalType.DISTRIBUTION_ANALYSIS, f"查看{target}的分布特征", f"检查 {target} 的集中趋势、离散程度和异常值提示。", target_metric=target, missing=["目标指标存在多个候选列，建议先确认要查看分布的指标"] if metric_ambiguous else [], assumptions=list(best_metric.risks if best_metric else ()), trigger=5, target_certainty=best_metric.certainty if best_metric else 0)
+        add(GoalType.DISTRIBUTION_ANALYSIS, _bilingual(f"Distribution of {target}", f"查看{target}的分布特征"), _bilingual(f"Review the spread, concentration, and outlier warnings for {target}.", f"检查 {target} 的集中趋势、离散程度和异常值提示。"), target_metric=target, missing=[_bilingual("The target metric is still ambiguous; confirm which metric distribution to inspect", "目标指标仍有歧义，建议先确认要查看分布的指标")] if metric_ambiguous else [], assumptions=list(best_metric.risks if best_metric else ()), trigger=5, target_certainty=best_metric.certainty if best_metric else 0)
 
     strong_quality_issues = [issue for issue in profile.quality_issues if str(issue.severity) in {"medium", "high", "critical"}]
     if asks_quality or (not drafted and strong_quality_issues):
-        add(GoalType.DATA_QUALITY_REVIEW, "检查数据质量问题", "基于当前版本的确定性体检结果，优先查看缺失值、重复、解析冲突和字段信息量风险。", trigger=6 if asks_quality else 2)
-
+        add(GoalType.DATA_QUALITY_REVIEW, _bilingual("Data quality review", "检查数据质量问题"), _bilingual("Start with deterministic checks for missing values, duplicates, parsing conflicts, and low-information columns.", "先查看缺失值、重复、解析冲突和低信息量字段等确定性数据质量问题。"), target_metric=None, trigger=6 if asks_quality else 2)
     if not drafted:
-        add(GoalType.DATA_QUALITY_REVIEW, "检查数据质量问题", "当前未识别出足够明确的业务分析目标，先查看数据质量与字段结构更稳妥。", trigger=1)
+        add(GoalType.DATA_QUALITY_REVIEW, _bilingual("Data quality review", "检查数据质量问题"), _bilingual("No stable business analysis target was identified yet, so start by reviewing dataset quality and schema reliability.", "当前未识别出足够明确的业务分析目标，建议先查看数据质量与字段结构。"), target_metric=None, trigger=1)
 
     best_by_key: dict[tuple[str, str | None, str | None], tuple[GoalCandidate, tuple[int, int, int, int, int, int, str, str]]] = {}
     for key, candidate, score in drafted:
         current = best_by_key.get(key)
         if current is None or score > current[1]:
             best_by_key[key] = (candidate, score)
-
     ordered = sorted(best_by_key.values(), key=lambda item: (-item[1][0], -item[1][1], -item[1][2], -item[1][3], -item[1][4], -item[1][5], item[1][6], item[1][7]))
     candidates: list[GoalCandidate] = []
     per_type: dict[str, int] = {}

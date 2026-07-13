@@ -94,6 +94,12 @@ function questionKey(question: ClarificationQuestion, index: number): string {
     return question.text_code || `${question.text}-${index}`;
 }
 
+function translateClarificationText(t: TFunction, code: string | null | undefined, fallback: string): string {
+    if (!code) return fallback;
+    const translated = t(code, { defaultValue: fallback });
+    return translated && translated !== code ? String(translated) : fallback;
+}
+
 export interface GoalConfirmationPanelProps {
     datasetId: string;
     versionId: string;
@@ -274,11 +280,11 @@ export function GoalConfirmationPanel({
                             {questions.map((question, index) => (
                                 <Box key={questionKey(question, index)}>
                                     <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                        {question.text}
+                                        {translateClarificationText(t, question.text_code, question.text)}
                                     </Typography>
                                     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 0.75 }}>
                                         {question.options.map((option, optionIndex) => (
-                                            <Chip key={`${questionKey(question, index)}-${optionIndex}`} size="small" label={option.label} />
+                                            <Chip key={`${questionKey(question, index)}-${optionIndex}`} size="small" label={translateClarificationText(t, option.label_code, option.label)} />
                                         ))}
                                     </Stack>
                                 </Box>
