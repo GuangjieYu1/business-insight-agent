@@ -160,7 +160,7 @@ def create_background_agent_run(
     workspace_id: str,
     dataset_id: str,
     version_id: str | None = None,
-    goal_id: str | None = None,
+    goal_id: str,
 ) -> BackgroundRunCreation:
     dataset, version = _resolve_dataset_version(
         store,

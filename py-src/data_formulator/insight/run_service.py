@@ -23,6 +23,7 @@ from data_formulator.insight.profiling import InsightProfileError
 from data_formulator.insight.registry import (
     InsightRegistryError,
     read_dataset,
+    read_project,
     read_dataset_version,
 )
 from data_formulator.insight.storage import (
@@ -102,13 +103,11 @@ def _validate_goal(
     store: InsightStore,
     *,
     workspace_id: str,
-    goal_id: str | None,
+    goal_id: str,
     dataset_id: str,
     version_id: str,
     columns: list[str],
 ) -> None:
-    if goal_id is None:
-        return
     try:
         goal = GoalStore(store, workspace_id=workspace_id).read(goal_id)
     except DomainStoreError as exc:
@@ -135,6 +134,15 @@ def _validate_goal(
     if missing:
         raise InsightRunConflictError(
             "AnalysisGoal references missing fields: " + ", ".join(missing)
+        )
+    project = read_project(store)
+    if project is None or project.workspace_id != workspace_id:
+        raise InsightRunConflictError(
+            "The active project must exist before starting an analysis run"
+        )
+    if project.active_goal_id != goal.id:
+        raise InsightRunConflictError(
+            "goalId must match the project's active confirmed goal"
         )
 
 def _transition_run(
@@ -225,7 +233,7 @@ def start_agent_run(
     workspace_id: str,
     dataset_id: str,
     version_id: str | None = None,
-    goal_id: str | None = None,
+    goal_id: str,
 ) -> RunStartResult:
     """Create and synchronously advance a Run to approval or completion.
 

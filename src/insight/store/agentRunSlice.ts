@@ -82,7 +82,7 @@ export const restoreLatestAgentRun = createAsyncThunk<
 
 export const startObservableAgentRun = createAsyncThunk<
     AgentRunSnapshot,
-    { datasetId: string; versionId?: string; goalId?: string },
+    { datasetId: string; versionId?: string; goalId: string },
     { rejectValue: InsightError }
 >('agentRun/start', async ({ datasetId, versionId, goalId }, thunkApi) => {
     try {

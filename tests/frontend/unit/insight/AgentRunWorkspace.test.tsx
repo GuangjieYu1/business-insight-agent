@@ -409,4 +409,86 @@ describe('AgentRunWorkspace', () => {
         fireEvent.click(screen.getByRole('button', { name: 'insight.run.openCleaning' }));
         expect(onOpenCleaning).toHaveBeenCalledTimes(1);
     });
+
+
+    it('blocks candidate confirmation while clarification is still required', () => {
+        const store = configureStore({
+            reducer: {
+                agentRun: agentRunReducer,
+                goal: goalReducer,
+            },
+            preloadedState: {
+                agentRun: {
+                    resources: {
+                        dataset_sales: emptyAgentResource(),
+                    },
+                },
+                goal: {
+                    resources: {
+                        'dataset_sales::version_000': {
+                            ...readyGoalResource(null),
+                            intent: {
+                                id: 'intent_2',
+                                schema_version: '1.0',
+                                workspace_id: 'workspace_1',
+                                created_at: '2026-07-13T00:00:00Z',
+                                updated_at: '2026-07-13T00:00:00Z',
+                                dataset_id: 'dataset_sales',
+                                dataset_version_id: 'version_000',
+                                user_input: 'why did revenue decline recently?',
+                                clarification_questions: [],
+                                status: 'awaiting_clarification',
+                            },
+                            goalCandidates: [
+                                {
+                                    id: 'goal_candidate_2',
+                                    schema_version: '1.0',
+                                    workspace_id: 'workspace_1',
+                                    created_at: '2026-07-13T00:00:00Z',
+                                    updated_at: '2026-07-13T00:00:00Z',
+                                    intent_id: 'intent_2',
+                                    dataset_id: 'dataset_sales',
+                                    dataset_version_id: 'version_000',
+                                    title: 'Analyze revenue decline drivers',
+                                    description: 'Compare revenue by region.',
+                                    goal_type: 'driver_analysis',
+                                    target_metric: 'revenue',
+                                    dimensions: ['region'],
+                                    time_column: 'date',
+                                    filters: [],
+                                    confidence: 0.82,
+                                    assumptions: [],
+                                    missing_information: ['Need metric clarification'],
+                                    requires_confirmation: true,
+                                },
+                            ],
+                            questions: [
+                                {
+                                    text: 'Which metric should we analyze?',
+                                    text_code: 'insight.metricQuestion',
+                                    responseType: 'single_choice',
+                                    options: [{ label: 'revenue', label_code: null }],
+                                },
+                            ],
+                        },
+                    },
+                },
+            },
+        });
+
+        render(
+            <Provider store={store}>
+                <AgentRunWorkspace
+                    datasetId="dataset_sales"
+                    versionId="version_000"
+                    profile={profile}
+                    onOpenCleaning={vi.fn()}
+                />
+            </Provider>,
+        );
+
+        expect(screen.getByText('insight.goal.clarificationRequired')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'insight.goal.useCandidate' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'insight.goal.editCandidate' })).toBeDisabled();
+    });
 });

@@ -196,6 +196,7 @@
   "insight.goal.newCustomGoal": "New custom goal",
   "insight.goal.questionsTitle": "Clarification prompts",
   "insight.goal.questionsHint": "These prompts explain what information is still ambiguous. Answering them is optional in this phase.",
+  "insight.goal.clarificationRequired": "This intent still needs clarification. Candidate-based confirmation is blocked until the ambiguity is resolved, but you can still create a custom goal with real dataset fields.",
   "insight.goal.editor.customTitle": "Custom goal editor",
   "insight.goal.editor.candidateTitle": "Edit candidate before confirming",
   "insight.goal.fields.goalType": "Goal type",

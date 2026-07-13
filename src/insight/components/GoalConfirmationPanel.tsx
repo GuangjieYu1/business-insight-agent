@@ -165,6 +165,7 @@ export function GoalConfirmationPanel({
     const generating = status === 'generating';
     const confirming = status === 'confirming';
     const editing = editorKind !== null;
+    const clarificationRequired = intent?.status === 'awaiting_clarification';
 
     const openCandidateEditor = (candidate: GoalCandidate) => {
         setEditorKind('candidate');
@@ -259,6 +260,11 @@ export function GoalConfirmationPanel({
                 <Card variant="outlined">
                     <CardContent>
                         <Stack spacing={1}>
+                            {clarificationRequired ? (
+                                <Alert severity="warning" variant="outlined">
+                                    {t('insight.goal.clarificationRequired')}
+                                </Alert>
+                            ) : null}
                             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                                 {t('insight.goal.questionsTitle')}
                             </Typography>
@@ -438,7 +444,7 @@ export function GoalConfirmationPanel({
                                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap flexWrap="wrap">
                                     <Button
                                         variant="contained"
-                                        disabled={confirming}
+                                        disabled={confirming || clarificationRequired}
                                         onClick={() => onConfirmGoal({
                                             datasetId,
                                             datasetVersionId: versionId,
@@ -450,7 +456,7 @@ export function GoalConfirmationPanel({
                                     <Button
                                         variant="outlined"
                                         startIcon={<EditOutlinedIcon />}
-                                        disabled={confirming}
+                                        disabled={confirming || clarificationRequired}
                                         onClick={() => openCandidateEditor(candidate)}
                                     >
                                         {t('insight.goal.editCandidate')}

@@ -185,6 +185,7 @@ class GoalCandidateStore(_WorkspaceModelStore[GoalCandidate]):
         if len(candidates) > 4:
             raise DomainStoreError("An intent can store at most 4 goal candidates")
         with self.store.workspace_lock():
+            seen_ids: set[str] = set()
             for relative_path in list(self.store.list(self.directory)):
                 if not relative_path.endswith(".json"):
                     continue
@@ -196,7 +197,18 @@ class GoalCandidateStore(_WorkspaceModelStore[GoalCandidate]):
                 _require_workspace(candidate, self.workspace_id)
                 if candidate.intent_id != safe_intent_id:
                     raise DomainStoreError("GoalCandidate intent_id does not match target intent")
-                self.store.write_json(self._path(candidate.id), candidate)
+                if candidate.id in seen_ids:
+                    raise DomainStoreError("GoalCandidate ids must be unique within one intent")
+                seen_ids.add(candidate.id)
+                target_path = self._path(candidate.id)
+                if self.store.exists(target_path):
+                    existing = self.store.read_model(target_path, self.model_type)
+                    _require_workspace(existing, self.workspace_id)
+                    if existing.intent_id != safe_intent_id:
+                        raise DomainStoreError(
+                            "GoalCandidate id is already used by another intent"
+                        )
+                self.store.write_json(target_path, candidate)
         return self.list_for_intent(safe_intent_id)
 
 

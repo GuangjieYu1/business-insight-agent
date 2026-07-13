@@ -124,7 +124,7 @@ def test_create_intent_route_autogenerates_candidates_and_questions(tmp_path: Pa
     response = client.post("/api/insight/intents", json={"datasetId": DATASET_ID, "datasetVersionId": "version_000", "userInput": "\u4e3a\u4ec0\u4e48\u6700\u8fd1\u6536\u5165\u4e0b\u964d\u4e86"}, headers=headers)
     payload = response.get_json()["data"]
     assert response.status_code == 200
-    assert payload["intent"]["status"] == "candidates_ready"
+    assert payload["intent"]["status"] == "awaiting_clarification"
     assert payload["goalCandidates"][0]["goal_type"] == "trend_analysis"
     assert payload["questions"][0]["text_code"] == "insight.metricQuestion"
     loaded = client.get(f"/api/insight/intents/{payload['intent']['id']}", headers=headers).get_json()["data"]
@@ -139,3 +139,4 @@ def test_manual_empty_goal_candidates_do_not_trigger_auto_generation(tmp_path: P
     assert response.status_code == 200
     assert payload["goalCandidates"] == []
     assert payload["questions"] == []
+    assert payload["intent"]["status"] == "created"

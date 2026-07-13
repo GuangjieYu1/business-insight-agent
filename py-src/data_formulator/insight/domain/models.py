@@ -390,7 +390,7 @@ class IntentRequest(InsightModel):
     dataset_version_id: str
     user_input: str = Field(min_length=1, max_length=2000)
     clarification_questions: list[ClarificationQuestion] = Field(default_factory=list)
-    status: Literal["created", "candidates_ready", "confirmed"] = "created"
+    status: Literal["created", "awaiting_clarification", "candidates_ready", "confirmed"] = "created"
 
     @field_validator("dataset_id", "dataset_version_id", "user_input")
     @classmethod

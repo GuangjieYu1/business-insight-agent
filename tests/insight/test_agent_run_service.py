@@ -6,11 +6,9 @@ from flask import Flask
 
 from data_formulator.datalake.workspace import Workspace
 from data_formulator.error_handler import register_error_handlers
+from data_formulator.insight.goal_service import create_analysis_goal
 from data_formulator.insight.profiling import InsightProfileError
-from data_formulator.insight.registry import (
-    read_dataset,
-    register_dataset_version_zero,
-)
+from data_formulator.insight.registry import read_dataset, register_dataset_version_zero
 from data_formulator.insight.routes import insight_project_bp
 from data_formulator.insight.run_service import (
     InsightRunConflictError,
@@ -44,6 +42,21 @@ def _dirty_store(tmp_path: Path) -> LocalInsightStore:
     return store
 
 
+def _confirmed_goal_id(store: LocalInsightStore, dataset_id: str = DATASET_ID) -> str:
+    return create_analysis_goal(
+        store,
+        workspace_id=WORKSPACE_ID,
+        dataset_id=dataset_id,
+        dataset_version_id="version_000",
+        payload={
+            "title": "Analyze sales drivers",
+            "goalType": "driver_analysis",
+            "targetMetric": "sales",
+            "dimensions": ["name"],
+        },
+    ).goal.id
+
+
 def test_agent_run_stops_at_approval_without_mutating_dataset(tmp_path: Path):
     store = _dirty_store(tmp_path)
 
@@ -51,6 +64,7 @@ def test_agent_run_stops_at_approval_without_mutating_dataset(tmp_path: Path):
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id=DATASET_ID,
+        goal_id=_confirmed_goal_id(store),
     )
 
     assert result.run.status == "waiting_approval"
@@ -92,6 +106,7 @@ def test_agent_run_completes_when_no_proposals_are_required(tmp_path: Path, monk
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id=DATASET_ID,
+        goal_id=_confirmed_goal_id(store),
     )
 
     assert result.run.status == "completed"
@@ -118,6 +133,7 @@ def test_agent_run_failure_is_persisted_with_error_step(tmp_path: Path, monkeypa
             store,
             workspace_id=WORKSPACE_ID,
             dataset_id=DATASET_ID,
+            goal_id=_confirmed_goal_id(store),
         )
 
     runs = RunStore(store, workspace_id=WORKSPACE_ID).list()
@@ -142,6 +158,7 @@ def test_waiting_run_can_be_cancelled_idempotently(tmp_path: Path):
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id=DATASET_ID,
+        goal_id=_confirmed_goal_id(store),
     )
 
     cancelled = cancel_agent_run(
@@ -175,6 +192,7 @@ def test_completed_or_failed_run_cannot_be_cancelled(tmp_path: Path, monkeypatch
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id=DATASET_ID,
+        goal_id=_confirmed_goal_id(store),
     )
 
     with pytest.raises(InsightRunConflictError, match="cannot be cancelled"):
@@ -223,9 +241,22 @@ def test_agent_run_routes_create_read_steps_and_cancel(tmp_path: Path, monkeypat
     )
     assert registered.get_json()["status"] == "success"
 
+    goal_id = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "title": "Analyze sales drivers",
+            "goalType": "driver_analysis",
+            "targetMetric": "sales",
+            "dimensions": ["name"],
+        },
+        headers=headers,
+    ).get_json()["data"]["goal"]["id"]
+
     created = client.post(
         "/api/insight/runs",
-        json={"datasetId": DATASET_ID},
+        json={"datasetId": DATASET_ID, "goalId": goal_id},
         headers=headers,
     )
     created_payload = created.get_json()
@@ -266,7 +297,7 @@ def test_agent_run_route_rejects_missing_dataset(tmp_path: Path, monkeypatch):
 
     response = client.post(
         "/api/insight/runs",
-        json={"datasetId": "dataset_missing"},
+        json={"datasetId": "dataset_missing", "goalId": "goal_missing"},
         headers=headers,
     )
     payload = response.get_json()

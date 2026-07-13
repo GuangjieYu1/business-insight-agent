@@ -1,6 +1,8 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { dfActions } from '../../../../src/app/dfSlice';
+
 vi.mock('../../../../src/insight/api/goalClient', () => ({
     createAnalysisGoal: vi.fn(),
     createIntentSnapshot: vi.fn(),
@@ -170,5 +172,69 @@ describe('goalSlice', () => {
         expect(resource.intent?.status).toBe('confirmed');
         expect(resource.activeGoal?.id).toBe('goal_1');
         expect(resource.project?.active_goal_id).toBe('goal_1');
+    });
+
+
+    it('keeps the confirmed goal while generating a new intent for the same dataset version', async () => {
+        vi.mocked(readInsightProject).mockResolvedValue(project);
+        vi.mocked(createIntentSnapshot).mockResolvedValue({
+            intent: { ...intent, id: 'intent_2', status: 'awaiting_clarification' },
+            goalCandidates: [candidate],
+            questions: [{ text: 'Which metric?', text_code: 'insight.metricQuestion', responseType: 'single_choice', options: [{ label: 'revenue', label_code: null }] }],
+        });
+        const store = configureStore({
+            reducer: { goal: goalReducer },
+            preloadedState: {
+                goal: {
+                    resources: {
+                        'dataset_sales::version_000': {
+                            resourceKey: 'dataset_sales::version_000',
+                            datasetId: 'dataset_sales',
+                            versionId: 'version_000',
+                            project,
+                            activeGoal: goal,
+                            intent,
+                            goalCandidates: [candidate],
+                            questions: [],
+                            status: 'ready',
+                            error: null,
+                            currentRequestId: null,
+                        },
+                    },
+                },
+            },
+        });
+
+        await store.dispatch(createGoalIntent({
+            datasetId: 'dataset_sales',
+            datasetVersionId: 'version_000',
+            userInput: 'why did revenue decline recently?',
+        }));
+
+        const resource = store.getState().goal.resources['dataset_sales::version_000'];
+        expect(resource.activeGoal?.id).toBe('goal_1');
+        expect(resource.intent?.id).toBe('intent_2');
+        expect(resource.intent?.status).toBe('awaiting_clarification');
+    });
+
+    it('does not leak a late restore response after the workspace switches', async () => {
+        let resolveProject: ((value: InsightProject) => void) | null = null;
+        vi.mocked(readInsightProject).mockImplementation(() => new Promise((resolve) => {
+            resolveProject = resolve;
+        }));
+        const store = createStore();
+
+        const pending = store.dispatch(restoreGoalForDatasetVersion({
+            datasetId: 'dataset_sales',
+            versionId: 'version_000',
+        }));
+        store.dispatch(dfActions.setActiveWorkspace({
+            id: 'workspace_2',
+            displayName: 'Workspace 2',
+        }));
+        resolveProject?.(project);
+        await pending;
+
+        expect(store.getState().goal.resources).toEqual({});
     });
 });

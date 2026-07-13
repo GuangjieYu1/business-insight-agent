@@ -13,6 +13,7 @@ from data_formulator.insight.background_runs import (
     execute_background_agent_run,
     list_agent_runs,
 )
+from data_formulator.insight.goal_service import create_analysis_goal
 from data_formulator.insight.registry import read_dataset, register_dataset_version_zero
 from data_formulator.insight.routes import insight_project_bp
 from data_formulator.insight.run_events import project_run_events
@@ -46,6 +47,21 @@ def _store(tmp_path: Path, *, dataset_id: str = DATASET_ID) -> LocalInsightStore
     return store
 
 
+def _confirmed_goal_id(store: LocalInsightStore, dataset_id: str = DATASET_ID) -> str:
+    return create_analysis_goal(
+        store,
+        workspace_id=WORKSPACE_ID,
+        dataset_id=dataset_id,
+        dataset_version_id="version_000",
+        payload={
+            "title": "Analyze sales drivers",
+            "goalType": "driver_analysis",
+            "targetMetric": "sales",
+            "dimensions": ["name"],
+        },
+    ).goal.id
+
+
 def test_background_creation_returns_before_execution_and_preserves_dataset(tmp_path: Path):
     store = _store(tmp_path)
 
@@ -53,6 +69,7 @@ def test_background_creation_returns_before_execution_and_preserves_dataset(tmp_
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id=DATASET_ID,
+        goal_id=_confirmed_goal_id(store),
     )
 
     assert created.run.status == "created"
@@ -72,6 +89,7 @@ def test_background_execution_reaches_waiting_approval_without_data_mutation(tmp
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id=DATASET_ID,
+        goal_id=_confirmed_goal_id(store),
     )
 
     executed = execute_background_agent_run(
@@ -100,6 +118,7 @@ def test_completed_background_run_persists_summary_before_terminal_event(
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id=DATASET_ID,
+        goal_id=_confirmed_goal_id(store),
     )
     monkeypatch.setattr(
         "data_formulator.insight.background_runs.generate_cleaning_proposals_for_version",
@@ -134,6 +153,7 @@ def test_cancelled_background_run_cannot_continue(tmp_path: Path):
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id=DATASET_ID,
+        goal_id=_confirmed_goal_id(store),
     )
     cancelled = cancel_agent_run(
         store,
@@ -172,16 +192,29 @@ def test_run_listing_filters_by_dataset_and_returns_newest_first(tmp_path: Path)
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id=DATASET_ID,
+        goal_id=_confirmed_goal_id(store),
     )
     second = create_background_agent_run(
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id=DATASET_ID,
+        goal_id=_confirmed_goal_id(store),
     )
+    inventory_goal_id = create_analysis_goal(
+        store,
+        workspace_id=WORKSPACE_ID,
+        dataset_id="dataset_inventory",
+        dataset_version_id="version_000",
+        payload={
+            "title": "Review inventory",
+            "goalType": "data_quality_review",
+        },
+    ).goal.id
     create_background_agent_run(
         store,
         workspace_id=WORKSPACE_ID,
         dataset_id="dataset_inventory",
+        goal_id=inventory_goal_id,
     )
 
     sales_runs = list_agent_runs(
@@ -208,13 +241,29 @@ def _app_with_workspace(monkeypatch, workspace: Workspace) -> Flask:
     return app
 
 
+def _create_goal_via_api(client, headers, *, title: str = "Analyze sales drivers") -> str:
+    response = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "title": title,
+            "goalType": "driver_analysis",
+            "targetMetric": "sales",
+            "dimensions": ["constant"],
+        },
+        headers=headers,
+    )
+    return response.get_json()["data"]["goal"]["id"]
+
+
 def test_background_run_routes_return_immediately_and_restore_by_dataset(
     tmp_path: Path,
     monkeypatch,
 ):
     workspace = Workspace("local:test", workspace_path=tmp_path / "workspace")
     workspace.write_parquet(
-        pd.DataFrame({"constant": ["same", "same"]}),
+        pd.DataFrame({"constant": ["same", "same"], "sales": [10, 10]}),
         "sales_raw",
     )
     app = _app_with_workspace(monkeypatch, workspace)
@@ -228,6 +277,8 @@ def test_background_run_routes_return_immediately_and_restore_by_dataset(
     )
     assert registered.get_json()["status"] == "success"
 
+    goal_id = _create_goal_via_api(client, headers)
+
     launched: list[str] = []
     monkeypatch.setattr(
         "data_formulator.insight.routes.runs.launch_background_agent_run",
@@ -239,6 +290,7 @@ def test_background_run_routes_return_immediately_and_restore_by_dataset(
         json={
             "datasetId": DATASET_ID,
             "versionId": "version_000",
+            "goalId": goal_id,
             "executionMode": "background",
         },
         headers=headers,

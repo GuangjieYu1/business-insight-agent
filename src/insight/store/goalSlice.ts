@@ -94,6 +94,21 @@ function matchesDatasetVersion(goal: AnalysisGoal, datasetId: string, versionId:
         && goal.dataset_version_id === versionId;
 }
 
+function preserveActiveGoal(
+    activeGoal: AnalysisGoal | null,
+    project: InsightProject,
+    datasetId: string,
+    versionId: string,
+): AnalysisGoal | null {
+    if (!activeGoal) {
+        return null;
+    }
+    if (project.active_goal_id !== activeGoal.id) {
+        return null;
+    }
+    return matchesDatasetVersion(activeGoal, datasetId, versionId) ? activeGoal : null;
+}
+
 async function loadIntentSnapshotForGoal(goal: AnalysisGoal, signal: AbortSignal): Promise<{
     intent: IntentRequest | null;
     goalCandidates: GoalCandidate[];
@@ -260,8 +275,8 @@ const goalSlice = createSlice({
             resource.currentRequestId = action.meta.requestId;
         });
         builder.addCase(restoreGoalForDatasetVersion.fulfilled, (state, action) => {
-            const resource = ensureResource(state, action.payload.datasetId, action.payload.versionId);
-            if (resource.currentRequestId !== action.meta.requestId) return;
+            const resource = state.resources[action.payload.resourceKey];
+            if (!resource || resource.currentRequestId !== action.meta.requestId) return;
             resource.project = action.payload.project;
             resource.activeGoal = action.payload.activeGoal;
             resource.intent = action.payload.intent;
@@ -272,8 +287,8 @@ const goalSlice = createSlice({
             resource.currentRequestId = null;
         });
         builder.addCase(restoreGoalForDatasetVersion.rejected, (state, action) => {
-            const resource = ensureResource(state, action.meta.arg.datasetId, action.meta.arg.versionId);
-            if (resource.currentRequestId !== action.meta.requestId) return;
+            const resource = state.resources[makeGoalResourceKey(action.meta.arg.datasetId, action.meta.arg.versionId)];
+            if (!resource || resource.currentRequestId !== action.meta.requestId) return;
             resource.status = 'error';
             resource.error = action.payload ?? null;
             resource.currentRequestId = null;
@@ -286,9 +301,15 @@ const goalSlice = createSlice({
             resource.currentRequestId = action.meta.requestId;
         });
         builder.addCase(createGoalIntent.fulfilled, (state, action) => {
-            const resource = ensureResource(state, action.payload.datasetId, action.payload.versionId);
-            if (resource.currentRequestId !== action.meta.requestId) return;
+            const resource = state.resources[action.payload.resourceKey];
+            if (!resource || resource.currentRequestId !== action.meta.requestId) return;
             resource.project = action.payload.project;
+            resource.activeGoal = preserveActiveGoal(
+                resource.activeGoal,
+                action.payload.project,
+                action.payload.datasetId,
+                action.payload.versionId,
+            );
             resource.intent = action.payload.intent;
             resource.goalCandidates = action.payload.goalCandidates;
             resource.questions = action.payload.questions;
@@ -297,8 +318,8 @@ const goalSlice = createSlice({
             resource.currentRequestId = null;
         });
         builder.addCase(createGoalIntent.rejected, (state, action) => {
-            const resource = ensureResource(state, action.meta.arg.datasetId, action.meta.arg.datasetVersionId);
-            if (resource.currentRequestId !== action.meta.requestId) return;
+            const resource = state.resources[makeGoalResourceKey(action.meta.arg.datasetId, action.meta.arg.datasetVersionId)];
+            if (!resource || resource.currentRequestId !== action.meta.requestId) return;
             resource.status = 'error';
             resource.error = action.payload ?? null;
             resource.currentRequestId = null;
@@ -311,8 +332,8 @@ const goalSlice = createSlice({
             resource.currentRequestId = action.meta.requestId;
         });
         builder.addCase(saveAnalysisGoal.fulfilled, (state, action) => {
-            const resource = ensureResource(state, action.payload.datasetId, action.payload.versionId);
-            if (resource.currentRequestId !== action.meta.requestId) return;
+            const resource = state.resources[action.payload.resourceKey];
+            if (!resource || resource.currentRequestId !== action.meta.requestId) return;
             resource.project = action.payload.project;
             resource.activeGoal = action.payload.activeGoal;
             resource.intent = action.payload.intent;
@@ -323,8 +344,8 @@ const goalSlice = createSlice({
             resource.currentRequestId = null;
         });
         builder.addCase(saveAnalysisGoal.rejected, (state, action) => {
-            const resource = ensureResource(state, action.meta.arg.datasetId, action.meta.arg.datasetVersionId);
-            if (resource.currentRequestId !== action.meta.requestId) return;
+            const resource = state.resources[makeGoalResourceKey(action.meta.arg.datasetId, action.meta.arg.datasetVersionId)];
+            if (!resource || resource.currentRequestId !== action.meta.requestId) return;
             resource.status = 'error';
             resource.error = action.payload ?? null;
             resource.currentRequestId = null;

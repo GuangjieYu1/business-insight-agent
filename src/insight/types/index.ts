@@ -92,7 +92,7 @@ export interface IntentRequest extends InsightEntityBase {
     dataset_version_id: string;
     user_input: string;
     clarification_questions: ClarificationQuestion[];
-    status: 'created' | 'candidates_ready' | 'confirmed';
+    status: 'created' | 'awaiting_clarification' | 'candidates_ready' | 'confirmed';
 }
 
 export interface GoalCandidate extends InsightEntityBase {

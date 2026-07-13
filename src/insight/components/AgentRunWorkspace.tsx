@@ -94,8 +94,9 @@ export function AgentRunWorkspace({ datasetId, versionId, profile, onOpenCleanin
     const finalSummary = resource?.finalSummary ?? null;
     const activeGoal = goalResource?.activeGoal ?? null;
     const shouldStream = Boolean(run && ACTIVE_RUN_STATUSES.has(run.status));
+    const hasBlockingRun = Boolean(run && run.status !== 'completed' && run.status !== 'failed' && run.status !== 'cancelled');
     const showGoalPanel = goalPanelMode !== 'hidden' || !activeGoal;
-    const canStartNewRun = Boolean(activeGoal) && goalPanelMode === 'hidden' && resource?.status !== 'starting' && goalResource?.status !== 'confirming' && run?.status !== 'waiting_approval';
+    const canStartNewRun = Boolean(activeGoal) && goalPanelMode === 'hidden' && resource?.status !== 'starting' && goalResource?.status !== 'confirming' && !hasBlockingRun;
 
     useEffect(() => {
         setGoalPanelMode('hidden');
