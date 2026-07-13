@@ -13,6 +13,9 @@ from data_formulator.insight.background_runs import (
     launch_background_agent_run,
     list_agent_runs,
 )
+from data_formulator.insight.data_agent_ledger import (
+    recover_interrupted_data_agent_runs,
+)
 from data_formulator.insight.run_events import (
     events_after_cursor,
     parse_event_cursor,
@@ -72,13 +75,23 @@ def _snapshot_payload(snapshot) -> dict[str, Any]:
 def list_agent_runs_route():
     _, workspace = _workspace_context()
     dataset_id = request.args.get("datasetId") or request.args.get("dataset_id")
+    table_name = request.args.get("tableName") or request.args.get("table_name")
     if dataset_id is not None and not dataset_id.strip():
         raise AppError(ErrorCode.INVALID_REQUEST, "datasetId must be a non-empty string")
+    if table_name is not None and not table_name.strip():
+        raise AppError(ErrorCode.INVALID_REQUEST, "tableName must be a non-empty string")
     try:
+        store = _store_for(workspace)
+        workspace_id = _workspace_id(workspace)
+        recover_interrupted_data_agent_runs(
+            store,
+            workspace_id=workspace_id,
+        )
         runs = list_agent_runs(
-            _store_for(workspace),
-            workspace_id=_workspace_id(workspace),
+            store,
+            workspace_id=workspace_id,
             dataset_id=dataset_id.strip() if dataset_id else None,
+            table_name=table_name.strip() if table_name else None,
         )
     except InsightRunError as exc:
         raise _run_error(exc) from exc
