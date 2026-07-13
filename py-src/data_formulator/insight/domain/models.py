@@ -478,14 +478,20 @@ class AgentRunStatus(StrEnum):
     ANALYZING = "analyzing"
     EXPERIMENTING = "experimenting"
     SYNTHESIZING = "synthesizing"
+    WAITING_USER_INPUT = "waiting_user_input"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    INTERRUPTED = "interrupted"
 
 
 class AgentRun(InsightModel):
     goal_id: str | None = None
     dataset_version_id: str | None = None
+    execution_kind: str = "deterministic_insight"
+    source_table_refs: list[str] = Field(default_factory=list)
+    interrupted_at: datetime | None = None
+    resume_cursor_hash: str | None = None
     status: AgentRunStatus = AgentRunStatus.CREATED
     current_stage: str = "created"
     started_at: datetime | None = None

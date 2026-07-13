@@ -74,6 +74,46 @@ def _get_knowledge_store(identity_id: str) -> KnowledgeStore | None:
 agent_bp = Blueprint('agent', __name__, url_prefix='/api/agent')
 
 
+def _start_data_agent_ledger(
+    workspace: Workspace,
+    *,
+    input_tables: list[dict],
+    user_question: str,
+    resume_trajectory: list[dict] | None,
+):
+    '''Start the BIA sidecar ledger without affecting the Data Agent.'''
+
+    args = current_app.config.get('CLI_ARGS', {})
+    if args.get('product_mode') != 'business_insight':
+        return None
+    try:
+        from data_formulator.insight.data_agent_ledger import DataAgentRunLedger
+        from data_formulator.insight.storage import LocalInsightStore
+
+        workspace_id = workspace.confined_root.root.name
+        return DataAgentRunLedger.start_or_resume(
+            LocalInsightStore(workspace.confined_root.root),
+            workspace_id=workspace_id,
+            input_tables=input_tables,
+            user_question=user_question,
+            resume_trajectory=resume_trajectory,
+        )
+    except Exception:
+        logger.warning('Data Agent ledger could not be started', exc_info=True)
+        return None
+
+
+def _call_data_agent_ledger(ledger, method: str, *args) -> object | None:
+    if ledger is None:
+        return None
+    try:
+        getattr(ledger, method)(*args)
+        return ledger
+    except Exception:
+        logger.warning('Data Agent ledger operation failed: %s', method, exc_info=True)
+        return None
+
+
 def _try_parse_explore_line(raw_line: str) -> str | None:
     """Parse a single line from the exploration agent into an NDJSON line.
 
@@ -478,6 +518,12 @@ def data_agent_streaming():
     language_instruction = get_language_instruction(mode="full")
 
     def generate():
+        ledger = _start_data_agent_ledger(
+            workspace,
+            input_tables=input_tables,
+            user_question=user_question,
+            resume_trajectory=resume_trajectory,
+        )
         try:
             agent = DataAgent(
                 client=client,
@@ -514,6 +560,7 @@ def data_agent_streaming():
                 primary_tables=primary_tables,
                 attached_images=attached_images,
             ):
+                ledger = _call_data_agent_ledger(ledger, 'observe', event)
                 yield json.dumps(event, ensure_ascii=False) + '\n'
 
                 if event.get("type") in ("completion", "clarify", "explain"):
@@ -521,9 +568,19 @@ def data_agent_streaming():
 
         except Exception as e:
             logger.error("Error in data-agent-streaming", exc_info=e)
+            ledger = _call_data_agent_ledger(
+                ledger,
+                'fail',
+                type(e).__name__,
+            )
             yield stream_error_event(classify_and_wrap_llm_error(e))
 
-        logger.setLevel(logging.WARNING)
+        finally:
+            if sys.exc_info()[0] is GeneratorExit:
+                _call_data_agent_ledger(ledger, 'cancel')
+            else:
+                _call_data_agent_ledger(ledger, 'finish_stream')
+            logger.setLevel(logging.WARNING)
 
     return Response(
         stream_with_context(_with_warnings(generate())),

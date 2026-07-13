@@ -522,6 +522,7 @@ def list_agent_runs(
     *,
     workspace_id: str,
     dataset_id: str | None = None,
+    table_name: str | None = None,
 ) -> list[AgentRun]:
     run_store = RunStore(store, workspace_id=workspace_id)
     try:
@@ -539,4 +540,10 @@ def list_agent_runs(
                 # Runs for the same Dataset.
                 continue
         runs = filtered
+    if table_name is not None:
+        runs = [
+            run
+            for run in runs
+            if table_name in run.source_table_refs
+        ]
     return sorted(runs, key=lambda item: (item.created_at, item.id), reverse=True)

@@ -20,9 +20,11 @@ from data_formulator.insight.storage import InsightStore
 
 _TERMINAL_EVENT_BY_STATUS = {
     "waiting_approval": "approval_required",
+    "waiting_user_input": "user_input_required",
     "completed": "run_completed",
     "failed": "run_failed",
     "cancelled": "run_cancelled",
+    "interrupted": "run_interrupted",
 }
 
 _STEP_STAGE_BY_TITLE = {
