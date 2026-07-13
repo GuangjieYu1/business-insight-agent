@@ -8,6 +8,11 @@ from flask import Response, request, stream_with_context
 
 from data_formulator.error_handler import json_ok
 from data_formulator.errors import AppError, ErrorCode
+from data_formulator.insight.background_runs import (
+    create_background_agent_run,
+    launch_background_agent_run,
+    list_agent_runs,
+)
 from data_formulator.insight.run_events import (
     events_after_cursor,
     parse_event_cursor,
@@ -63,6 +68,23 @@ def _snapshot_payload(snapshot) -> dict[str, Any]:
     }
 
 
+@insight_project_bp.route("/runs", methods=["GET"])
+def list_agent_runs_route():
+    _, workspace = _workspace_context()
+    dataset_id = request.args.get("datasetId") or request.args.get("dataset_id")
+    if dataset_id is not None and not dataset_id.strip():
+        raise AppError(ErrorCode.INVALID_REQUEST, "datasetId must be a non-empty string")
+    try:
+        runs = list_agent_runs(
+            _store_for(workspace),
+            workspace_id=_workspace_id(workspace),
+            dataset_id=dataset_id.strip() if dataset_id else None,
+        )
+    except InsightRunError as exc:
+        raise _run_error(exc) from exc
+    return json_ok({"runs": [run.model_dump(mode="json") for run in runs]})
+
+
 @insight_project_bp.route("/runs", methods=["POST"])
 def create_agent_run_route():
     _, workspace = _workspace_context()
@@ -71,13 +93,48 @@ def create_agent_run_route():
     if dataset_id is None:
         raise AppError(ErrorCode.INVALID_REQUEST, "datasetId is required")
 
+    execution_mode = payload.get("executionMode") or payload.get("execution_mode") or "synchronous"
+    if execution_mode not in {"synchronous", "background"}:
+        raise AppError(
+            ErrorCode.INVALID_REQUEST,
+            "executionMode must be 'synchronous' or 'background'",
+        )
+
+    store = _store_for(workspace)
+    workspace_id = _workspace_id(workspace)
+    version_id = _optional_string(payload, "versionId", "version_id")
+    goal_id = _optional_string(payload, "goalId", "goal_id")
+
     try:
+        if execution_mode == "background":
+            created = create_background_agent_run(
+                store,
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                version_id=version_id,
+                goal_id=goal_id,
+            )
+            launch_background_agent_run(
+                store,
+                workspace_id=workspace_id,
+                run_id=created.run.id,
+            )
+            return json_ok(
+                {
+                    "run": created.run.model_dump(mode="json"),
+                    "steps": [step.model_dump(mode="json") for step in created.steps],
+                    "profile": None,
+                    "proposals": [],
+                    "executionMode": "background",
+                }
+            )
+
         result = start_agent_run(
-            _store_for(workspace),
-            workspace_id=_workspace_id(workspace),
+            store,
+            workspace_id=workspace_id,
             dataset_id=dataset_id,
-            version_id=_optional_string(payload, "versionId", "version_id"),
-            goal_id=_optional_string(payload, "goalId", "goal_id"),
+            version_id=version_id,
+            goal_id=goal_id,
         )
     except InsightRunError as exc:
         raise _run_error(exc) from exc
@@ -90,6 +147,7 @@ def create_agent_run_route():
             "proposals": [
                 proposal.model_dump(mode="json") for proposal in result.proposals
             ],
+            "executionMode": "synchronous",
         }
     )
 
