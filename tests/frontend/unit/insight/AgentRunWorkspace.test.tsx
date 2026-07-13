@@ -4,14 +4,14 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const translate = (key: string, params?: Record<string, unknown>) => {
+    if (key === 'insight.run.processDrawer.subtitle') return `Run ${params?.runId}`;
+    if (key === 'insight.run.final.runReference') return `Run reference: ${params?.runId}`;
+    return key;
+};
+
 vi.mock('react-i18next', () => ({
-    useTranslation: () => ({
-        t: (key: string, params?: Record<string, unknown>) => {
-            if (key === 'insight.run.processDrawer.subtitle') return `Run ${params?.runId}`;
-            if (key === 'insight.run.final.runReference') return `Run reference: ${params?.runId}`;
-            return key;
-        },
-    }),
+    useTranslation: () => ({ t: translate }),
 }));
 
 vi.mock('../../../../src/insight/api/agentRunClient', () => ({
@@ -22,12 +22,12 @@ vi.mock('../../../../src/insight/api/agentRunClient', () => ({
     subscribeToAgentRunEvents: vi.fn(() => ({ close: vi.fn() })),
 }));
 
-import {
-    listAgentRuns,
-    readAgentRun,
-} from '../../../../src/insight/api/agentRunClient';
 import { AgentRunWorkspace } from '../../../../src/insight/components/AgentRunWorkspace';
-import { agentRunReducer } from '../../../../src/insight/store/agentRunSlice';
+import { ProcessDrawer } from '../../../../src/insight/components/ProcessDrawer';
+import {
+    agentRunReducer,
+    type AgentRunResourceState,
+} from '../../../../src/insight/store/agentRunSlice';
 import type { AgentRun, AgentStep, FinalSummary } from '../../../../src/insight/types';
 
 const baseRun: AgentRun = {
@@ -81,17 +81,36 @@ const summary: FinalSummary = {
     next_steps: ['Confirm a business goal.'],
 };
 
-function mockCompletedRun() {
-    vi.mocked(listAgentRuns).mockResolvedValue([baseRun]);
-    vi.mocked(readAgentRun).mockResolvedValue({
-        run: baseRun,
-        steps: [completedStep],
-        finalSummary: summary,
-    });
+function resourceFor(
+    run: AgentRun,
+    steps: AgentStep[],
+    finalSummary: FinalSummary | null,
+): AgentRunResourceState {
+    return {
+        datasetId: 'dataset_sales',
+        run,
+        steps,
+        finalSummary,
+        status: 'ready',
+        connectionStatus: 'closed',
+        lastEventId: null,
+        processOpen: false,
+        error: null,
+        currentRequestId: null,
+    };
 }
 
-function renderWorkspace(onOpenCleaning = vi.fn()) {
-    const store = configureStore({ reducer: { agentRun: agentRunReducer } });
+function renderWorkspace(resource: AgentRunResourceState, onOpenCleaning = vi.fn()) {
+    const store = configureStore({
+        reducer: { agentRun: agentRunReducer },
+        preloadedState: {
+            agentRun: {
+                resources: {
+                    dataset_sales: resource,
+                },
+            },
+        },
+    });
     render(
         <Provider store={store}>
             <AgentRunWorkspace
@@ -109,28 +128,33 @@ describe('AgentRunWorkspace', () => {
         vi.clearAllMocks();
     });
 
-    it('restores a completed run and presents the final conclusion', async () => {
-        mockCompletedRun();
-        renderWorkspace();
+    it('restores a completed run and collapses the main workspace into the final conclusion', () => {
+        renderWorkspace(resourceFor(baseRun, [completedStep], summary));
 
-        expect(await screen.findByText('Data quality review complete')).toBeInTheDocument();
+        expect(screen.getByText('Data quality review complete')).toBeInTheDocument();
         expect(screen.getByText('No deterministic cleaning approval is required.')).toBeInTheDocument();
         expect(screen.getByText('insight.run.final.limitations')).toBeInTheDocument();
         expect(screen.getByText('This is not a causal result.')).toBeInTheDocument();
         expect(screen.getByText('insight.run.final.nextSteps')).toBeInTheDocument();
         expect(screen.getByText('Confirm a business goal.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'insight.run.viewFullProcess' })).toBeInTheDocument();
     });
 
-    it('opens the persisted process drawer from a completed conclusion', async () => {
-        mockCompletedRun();
-        renderWorkspace();
-
-        expect(await screen.findByText('Data quality review complete')).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'insight.run.viewFullProcess' }));
+    it('renders the complete persisted analysis process in ProcessDrawer', async () => {
+        render(
+            <ProcessDrawer
+                open
+                run={baseRun}
+                steps={[completedStep]}
+                t={translate as any}
+                onClose={vi.fn()}
+            />,
+        );
 
         expect(await screen.findByText('insight.run.processDrawer.title')).toBeInTheDocument();
-        expect((await screen.findAllByText('Analysis run completed')).length).toBeGreaterThan(0);
         expect(screen.getByText('Run run_1')).toBeInTheDocument();
+        expect(screen.getByText('Analysis run completed')).toBeInTheDocument();
+        expect(screen.getByText('No approval is required.')).toBeInTheDocument();
     });
 
     it('restores a waiting-approval run and sends the user to cleaning review', async () => {
@@ -151,18 +175,12 @@ describe('AgentRunWorkspace', () => {
             output_refs: [],
             progress_text: 'Review the proposed cleaning operations.',
         };
-        vi.mocked(listAgentRuns).mockResolvedValue([waitingRun]);
-        vi.mocked(readAgentRun).mockResolvedValue({
-            run: waitingRun,
-            steps: [approvalStep],
-            finalSummary: null,
-        });
         const onOpenCleaning = vi.fn();
 
-        renderWorkspace(onOpenCleaning);
+        renderWorkspace(resourceFor(waitingRun, [approvalStep], null), onOpenCleaning);
 
-        expect(await screen.findByText('insight.run.waitingApproval')).toBeInTheDocument();
-        expect((await screen.findAllByText('Cleaning approval required')).length).toBeGreaterThan(0);
+        expect(screen.getByText('insight.run.waitingApproval')).toBeInTheDocument();
+        expect(screen.getAllByText('Cleaning approval required').length).toBeGreaterThan(0);
         fireEvent.click(screen.getByRole('button', { name: 'insight.run.openCleaning' }));
         expect(onOpenCleaning).toHaveBeenCalledTimes(1);
     });
