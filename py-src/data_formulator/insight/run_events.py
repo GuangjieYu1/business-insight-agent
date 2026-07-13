@@ -48,7 +48,7 @@ _STEP_EVENT_BY_TITLE = {
 
 @dataclass(frozen=True)
 class RunEvent:
-    id: int
+    id: str
     event_type: str
     payload: dict[str, Any]
 
@@ -93,7 +93,8 @@ def _stage_payload(snapshot: RunSnapshot, step: AgentStep, stage: str) -> dict[s
         "runId": snapshot.run.id,
         "stepId": step.id,
         "stage": stage,
-        "status": snapshot.run.status,
+        "status": step.status,
+        "runStatus": snapshot.run.status,
         "title": f"Stage changed to {stage}",
         "progressText": step.progress_text,
         "detail": {"sourceStepId": step.id},
@@ -102,13 +103,19 @@ def _stage_payload(snapshot: RunSnapshot, step: AgentStep, stage: str) -> dict[s
     }
 
 
-def _step_payload(snapshot: RunSnapshot, step: AgentStep, stage: str, event_type: str) -> dict[str, Any]:
+def _step_payload(
+    snapshot: RunSnapshot,
+    step: AgentStep,
+    stage: str,
+    event_type: str,
+) -> dict[str, Any]:
     return {
         "eventType": event_type,
         "runId": snapshot.run.id,
         "stepId": step.id,
         "stage": stage,
         "status": step.status,
+        "runStatus": snapshot.run.status,
         "title": step.title,
         "progressText": step.progress_text,
         "detail": step.detail,
@@ -124,31 +131,28 @@ def project_run_events(snapshot: RunSnapshot) -> list[RunEvent]:
 
     events: list[RunEvent] = []
     previous_stage: str | None = None
-    next_id = 0
 
     for step in snapshot.steps:
         stage = _step_stage(step)
         if previous_stage is not None and stage != previous_stage and stage != "unknown":
             events.append(
                 RunEvent(
-                    id=next_id,
+                    id=f"{step.id}:stage",
                     event_type="stage_changed",
                     payload=_stage_payload(snapshot, step, stage),
                 )
             )
-            next_id += 1
         if stage != "unknown":
             previous_stage = stage
 
         event_type = _step_event_type(step)
         events.append(
             RunEvent(
-                id=next_id,
+                id=step.id,
                 event_type=event_type,
                 payload=_step_payload(snapshot, step, stage, event_type),
             )
         )
-        next_id += 1
 
     return events
 
@@ -169,20 +173,34 @@ def format_heartbeat(run_id: str) -> str:
         "runId": run_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    data = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    data = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     return f"event: heartbeat\ndata: {data}\n\n"
 
 
-def parse_event_cursor(value: str | None) -> int:
+def parse_event_cursor(value: str | None) -> str | None:
     if value is None or not value.strip():
-        return -1
-    try:
-        cursor = int(value)
-    except ValueError as exc:
-        raise ValueError("Last-Event-ID must be a non-negative integer") from exc
-    if cursor < 0:
-        raise ValueError("Last-Event-ID must be a non-negative integer")
+        return None
+    cursor = value.strip()
+    if len(cursor) > 256 or "\r" in cursor or "\n" in cursor:
+        raise ValueError("Event cursor is invalid")
     return cursor
+
+
+def events_after_cursor(
+    events: list[RunEvent],
+    after_event_id: str | None,
+) -> list[RunEvent]:
+    if after_event_id is None:
+        return events
+    for index, event in enumerate(events):
+        if event.id == after_event_id:
+            return events[index + 1 :]
+    raise ValueError("Event cursor does not belong to this AgentRun")
 
 
 def stream_agent_run_events(
@@ -190,7 +208,7 @@ def stream_agent_run_events(
     *,
     workspace_id: str,
     run_id: str,
-    after_event_id: int = -1,
+    after_event_id: str | None = None,
     poll_interval_seconds: float = 0.5,
     heartbeat_interval_seconds: float = 15.0,
     max_idle_seconds: float | None = None,
@@ -203,7 +221,7 @@ def stream_agent_run_events(
     operational probes; normal HTTP usage leaves it unset.
     """
 
-    last_sent = after_event_id
+    cursor = after_event_id
     idle_started = time.monotonic()
     last_heartbeat = idle_started
 
@@ -214,18 +232,17 @@ def stream_agent_run_events(
             run_id=run_id,
         )
         events = project_run_events(snapshot)
-        pending = [event for event in events if event.id > last_sent]
+        pending = events_after_cursor(events, cursor)
 
         if pending:
             for event in pending:
                 yield format_sse_event(event)
-                last_sent = event.id
+                cursor = event.id
             idle_started = time.monotonic()
 
-        if (
-            snapshot.run.status in CLOSED_STREAM_STATUSES
-            and last_sent >= len(events) - 1
-        ):
+        if snapshot.run.status in CLOSED_STREAM_STATUSES and not pending:
+            return
+        if snapshot.run.status in CLOSED_STREAM_STATUSES and cursor == events[-1].id:
             return
 
         now = time.monotonic()
