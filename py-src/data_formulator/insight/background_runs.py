@@ -27,7 +27,6 @@ from data_formulator.insight.run_service import (
     _append_step,
     _record_failure,
     _resolve_dataset_version,
-    _transition_run,
     _validate_goal,
     get_agent_run,
 )
@@ -67,6 +66,92 @@ def _run_dataset_id(run_store: RunStore, run_id: str) -> str:
     if not isinstance(dataset_id, str) or not dataset_id.strip():
         raise InsightRunError("AgentRun creation metadata is missing dataset_id")
     return dataset_id
+
+
+def _read_locked_run(run_store: RunStore, run_id: str) -> AgentRun:
+    path = run_store._run_path(run_id)
+    if not run_store.store.exists(path):
+        raise DomainObjectNotFoundError(f"AgentRun not found: {run_id}")
+    run = run_store.store.read_model(path, AgentRun)
+    if run.workspace_id != run_store.workspace_id:
+        raise DomainStoreError("AgentRun workspace_id does not match active workspace")
+    return run
+
+
+def _transition_background_run(
+    run_store: RunStore,
+    run_id: str,
+    *,
+    status: str,
+    current_stage: str,
+) -> AgentRun | None:
+    """Atomically transition a Run unless a concurrent cancellation won."""
+
+    with run_store.store.workspace_lock():
+        current = _read_locked_run(run_store, run_id)
+        if current.status == "cancelled":
+            return None
+        updated = current.model_copy(
+            update={
+                "status": status,
+                "current_stage": current_stage,
+                "updated_at": utc_now(),
+                "completed_at": None,
+            }
+        )
+        run_store.store.write_json(run_store._run_path(run_id), updated)
+    return updated
+
+
+def _complete_background_run(
+    run_store: RunStore,
+    *,
+    run_id: str,
+    summary: FinalSummary,
+) -> AgentRun | None:
+    """Atomically persist FinalSummary and completed state unless cancelled."""
+
+    if summary.run_id != run_id:
+        raise DomainStoreError("FinalSummary run_id does not match AgentRun")
+    if summary.workspace_id != run_store.workspace_id:
+        raise DomainStoreError("FinalSummary workspace_id does not match active workspace")
+
+    with run_store.store.workspace_lock():
+        current = _read_locked_run(run_store, run_id)
+        if current.status == "cancelled":
+            return None
+        summary_path = run_store._summary_path(run_id)
+        run_store.store.write_json(summary_path, summary)
+        now = utc_now()
+        completed = current.model_copy(
+            update={
+                "status": "completed",
+                "current_stage": "completed",
+                "completed_at": now,
+                "updated_at": now,
+                "final_summary_ref": summary_path,
+            }
+        )
+        run_store.store.write_json(run_store._run_path(run_id), completed)
+    return completed
+
+
+def _cancelled_result(
+    store: InsightStore,
+    *,
+    workspace_id: str,
+    run_id: str,
+    profile: DatasetProfile | None,
+    proposals: list[CleaningProposal],
+) -> BackgroundRunExecution:
+    snapshot = get_agent_run(store, workspace_id=workspace_id, run_id=run_id)
+    return BackgroundRunExecution(
+        snapshot.run,
+        snapshot.steps,
+        profile,
+        proposals,
+        snapshot.final_summary,
+    )
 
 
 def create_background_agent_run(
@@ -130,14 +215,6 @@ def _require_executable_run(run_store: RunStore, run_id: str) -> AgentRun:
     return run
 
 
-def _stop_if_cancelled(run_store: RunStore, run_id: str) -> AgentRun | None:
-    try:
-        current = run_store.require(run_id)
-    except DomainStoreError as exc:
-        raise InsightRunError(str(exc)) from exc
-    return current if current.status == "cancelled" else None
-
-
 def _completed_summary(
     *,
     workspace_id: str,
@@ -193,12 +270,21 @@ def execute_background_agent_run(
             dataset_id=dataset_id,
             version_id=version_id,
         )
-        run = _transition_run(
+        transitioned = _transition_background_run(
             run_store,
-            run,
+            run.id,
             status="context_building",
             current_stage=stage,
         )
+        if transitioned is None:
+            return _cancelled_result(
+                store,
+                workspace_id=workspace_id,
+                run_id=run.id,
+                profile=None,
+                proposals=[],
+            )
+        run = transitioned
         _append_step(
             run_store,
             run,
@@ -216,38 +302,36 @@ def execute_background_agent_run(
                 "content_hash": version.content_hash,
             },
         )
-        cancelled = _stop_if_cancelled(run_store, run.id)
-        if cancelled:
-            snapshot = get_agent_run(store, workspace_id=workspace_id, run_id=run.id)
-            return BackgroundRunExecution(
-                cancelled,
-                snapshot.steps,
-                None,
-                [],
-                snapshot.final_summary,
-            )
 
         stage = "profiling"
-        run = _transition_run(
+        transitioned = _transition_background_run(
             run_store,
-            run_store.require(run.id),
+            run.id,
             status="profiling",
             current_stage=stage,
         )
+        if transitioned is None:
+            return _cancelled_result(
+                store,
+                workspace_id=workspace_id,
+                run_id=run.id,
+                profile=None,
+                proposals=[],
+            )
+        run = transitioned
         profile = generate_dataset_version_profile(
             store,
             workspace_id=workspace_id,
             dataset_id=dataset.id,
             version_id=version.id,
         )
-        if _stop_if_cancelled(run_store, run.id):
-            snapshot = get_agent_run(store, workspace_id=workspace_id, run_id=run.id)
-            return BackgroundRunExecution(
-                snapshot.run,
-                snapshot.steps,
-                profile,
-                [],
-                snapshot.final_summary,
+        if run_store.require(run.id).status == "cancelled":
+            return _cancelled_result(
+                store,
+                workspace_id=workspace_id,
+                run_id=run.id,
+                profile=profile,
+                proposals=[],
             )
         _append_step(
             run_store,
@@ -267,26 +351,34 @@ def execute_background_agent_run(
         )
 
         stage = "planning"
-        run = _transition_run(
+        transitioned = _transition_background_run(
             run_store,
-            run_store.require(run.id),
+            run.id,
             status="planning",
             current_stage=stage,
         )
+        if transitioned is None:
+            return _cancelled_result(
+                store,
+                workspace_id=workspace_id,
+                run_id=run.id,
+                profile=profile,
+                proposals=[],
+            )
+        run = transitioned
         proposals = generate_cleaning_proposals_for_version(
             store,
             workspace_id=workspace_id,
             dataset_id=dataset.id,
             version_id=version.id,
         )
-        if _stop_if_cancelled(run_store, run.id):
-            snapshot = get_agent_run(store, workspace_id=workspace_id, run_id=run.id)
-            return BackgroundRunExecution(
-                snapshot.run,
-                snapshot.steps,
-                profile,
-                proposals,
-                snapshot.final_summary,
+        if run_store.require(run.id).status == "cancelled":
+            return _cancelled_result(
+                store,
+                workspace_id=workspace_id,
+                run_id=run.id,
+                profile=profile,
+                proposals=proposals,
             )
         _append_step(
             run_store,
@@ -304,12 +396,21 @@ def execute_background_agent_run(
         )
 
         if proposals:
-            run = _transition_run(
+            transitioned = _transition_background_run(
                 run_store,
-                run_store.require(run.id),
+                run.id,
                 status="waiting_approval",
                 current_stage="waiting_approval",
             )
+            if transitioned is None:
+                return _cancelled_result(
+                    store,
+                    workspace_id=workspace_id,
+                    run_id=run.id,
+                    profile=profile,
+                    proposals=proposals,
+                )
+            run = transitioned
             _append_step(
                 run_store,
                 run,
@@ -324,23 +425,25 @@ def execute_background_agent_run(
                 },
             )
         else:
-            current_run = run_store.require(run.id)
             final_summary = _completed_summary(
                 workspace_id=workspace_id,
-                run=current_run,
+                run=run_store.require(run.id),
                 profile=profile,
             )
-            # Persist the final presentation before publishing the terminal
-            # event. SSE consumers that receive run_completed can immediately
-            # recover the complete Final Conclusion View via GET /runs/<id>.
-            run_store.write_final_summary(final_summary)
-            run = _transition_run(
+            completed = _complete_background_run(
                 run_store,
-                run_store.require(run.id),
-                status="completed",
-                current_stage="completed",
-                completed=True,
+                run_id=run.id,
+                summary=final_summary,
             )
+            if completed is None:
+                return _cancelled_result(
+                    store,
+                    workspace_id=workspace_id,
+                    run_id=run.id,
+                    profile=profile,
+                    proposals=[],
+                )
+            run = completed
             _append_step(
                 run_store,
                 run,
