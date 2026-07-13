@@ -17,10 +17,10 @@ import { useTranslation } from 'react-i18next';
 import { dfSelectors, type DataFormulatorState } from '../../app/dfSlice';
 import type { AppDispatch, RootState } from '../../app/store';
 import type { DictTable } from '../../components/ComponentType';
-import { AgentRunWorkspace } from '../components/AgentRunWorkspace';
 import { ProfileColumnsTable } from '../components/ProfileColumnsTable';
 import { ProfileIssueList } from '../components/ProfileIssueList';
 import { ProfileOverviewCards } from '../components/ProfileOverviewCards';
+import { TaskLedgerPanel } from '../components/TaskLedgerPanel';
 import { VersionedCleaningWorkspacePanel } from '../components/VersionedCleaningWorkspacePanel';
 import {
     loadProfileForTable,
@@ -29,7 +29,7 @@ import {
     type ProfilingStatus,
 } from '../store/profilingSlice';
 
-type InsightTab = 'agent' | 'analysis' | 'profiling' | 'cleaning';
+type InsightTab = 'analysis' | 'profiling' | 'cleaning' | 'process';
 
 const statusMessageKey: Record<Exclude<ProfilingStatus, 'ready' | 'error' | 'idle'>, string> = {
     registering: 'insight.profile.loading.registering',
@@ -96,7 +96,7 @@ export interface InsightWorkspacePaneProps {
 export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps) {
     const dispatch = useDispatch<AppDispatch>();
     const { t } = useTranslation();
-    const [activeTab, setActiveTab] = useState<InsightTab>('agent');
+    const [activeTab, setActiveTab] = useState<InsightTab>('analysis');
 
     const activeWorkspace = useSelector((state: RootState) => state.activeWorkspace);
     const activeTable = useSelector(resolveActiveTable);
@@ -130,7 +130,7 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
     }, [activeTable, activeWorkspace?.id, dispatch]);
 
     useEffect(() => {
-        const needsDataset = activeTab === 'agent' || activeTab === 'profiling' || activeTab === 'cleaning';
+        const needsDataset = activeTab === 'profiling' || activeTab === 'cleaning';
         if (!needsDataset || !activeWorkspace?.id || !activeTable || !requestKey) {
             return;
         }
@@ -224,23 +224,19 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
         return <VersionedCleaningWorkspacePanel datasetId={resource.datasetId} />;
     };
 
-    const renderAgentContent = () => {
-        const sharedState = renderSharedDatasetState();
-        if (sharedState) return sharedState;
-        if (!resource?.datasetId || !resource.profile) return <EmptyProfileState t={t} />;
+    const renderProcessContent = () => {
+        if (!activeWorkspace?.id || !activeTable) return <MissingTableState t={t} />;
         return (
-            <AgentRunWorkspace
-                datasetId={resource.datasetId}
-                versionId={resource.profile.version_id}
-                profile={resource.profile}
-                onOpenCleaning={() => setActiveTab('cleaning')}
+            <TaskLedgerPanel
+                workspaceId={activeWorkspace.id}
+                tableName={activeTable.virtual.tableId}
             />
         );
     };
 
     const renderManagedContent = () => {
-        if (activeTab === 'agent') return renderAgentContent();
         if (activeTab === 'profiling') return renderProfilingContent();
+        if (activeTab === 'process') return renderProcessContent();
         return renderCleaningContent();
     };
 
@@ -254,10 +250,10 @@ export function InsightWorkspacePane({ analysisView }: InsightWorkspacePaneProps
                     variant="scrollable"
                     scrollButtons="auto"
                 >
-                    <Tab value="agent" label={t('insight.tabs.agent')} />
                     <Tab value="analysis" label={t('insight.tabs.analysis')} />
                     <Tab value="profiling" label={t('insight.tabs.profiling')} />
                     <Tab value="cleaning" label={t('insight.tabs.cleaning')} />
+                    <Tab value="process" label={t('insight.tabs.process')} />
                 </Tabs>
             </Box>
             <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>

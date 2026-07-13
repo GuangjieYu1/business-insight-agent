@@ -95,13 +95,13 @@ describe('InsightWorkspacePane request lifecycle', () => {
     it('does not abort the active request when status changes to registering', () => {
         const { rerender } = render(<InsightWorkspacePane analysisView={<div>analysis</div>} />);
 
+        fireEvent.click(screen.getByRole('tab', { name: 'Data Profile' }));
+
         expect(dispatch).toHaveBeenCalledOnce();
         expect(abortRequest).not.toHaveBeenCalled();
 
         profilingStatus = 'registering';
         rerender(<InsightWorkspacePane analysisView={<div>analysis</div>} />);
-
-        fireEvent.click(screen.getByRole('tab', { name: 'Data Profile' }));
 
         expect(dispatch).toHaveBeenCalledOnce();
         expect(abortRequest).not.toHaveBeenCalled();

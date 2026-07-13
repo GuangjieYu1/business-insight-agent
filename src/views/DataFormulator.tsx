@@ -30,6 +30,7 @@ import {
     Select,
     MenuItem,
     TextField,
+    Stack,
 } from '@mui/material';
 import { borderColor, radius } from '../app/tokens';
 
@@ -90,6 +91,7 @@ export const DataFormulatorFC = ({ }) => {
     const selectedModelId = useSelector((state: DataFormulatorState) => state.selectedModelId);
     const viewMode = useSelector((state: DataFormulatorState) => state.viewMode);
     const serverConfig = useSelector((state: DataFormulatorState) => state.serverConfig);
+    const isBusinessInsight = serverConfig.APP_PRODUCT_MODE === 'business_insight';
     const brandName = getBrandName(serverConfig);
     const identityKey = useSelector((state: DataFormulatorState) => `${state.identity.type}:${state.identity.id}`);
     const dataLoadingChatMessages = useSelector((state: DataFormulatorState) => state.dataLoadingChatMessages);
@@ -442,6 +444,23 @@ export const DataFormulatorFC = ({ }) => {
     const columnSize = (n: number) => n * COLUMN_WIDTH + PANE_PADDING;
     const allotmentRef = useRef<AllotmentHandle>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const [isNarrowBusinessInsight, setIsNarrowBusinessInsight] = useState(false);
+    const [narrowBusinessInsightPane, setNarrowBusinessInsightPane] = useState<'data-agent' | 'workspace'>('data-agent');
+
+    useEffect(() => {
+        if (!isBusinessInsight || !containerRef.current) {
+            setIsNarrowBusinessInsight(false);
+            return undefined;
+        }
+        const container = containerRef.current;
+        const update = () => {
+            setIsNarrowBusinessInsight(container.clientWidth < 900);
+        };
+        update();
+        const observer = new ResizeObserver(update);
+        observer.observe(container);
+        return () => observer.disconnect();
+    }, [isBusinessInsight]);
 
     const snapToColumns = useCallback((sizes: number[]) => {
         if (!allotmentRef.current || sizes.length < 2) return;
@@ -523,6 +542,7 @@ export const DataFormulatorFC = ({ }) => {
     // Track previous thread count to auto-resize intelligently
     const prevThreadCountRef = useRef(threadCount);
     useEffect(() => {
+        if (isBusinessInsight) return;
         const prev = prevThreadCountRef.current;
         prevThreadCountRef.current = threadCount;
         if (!allotmentRef.current || !containerRef.current) return;
@@ -557,7 +577,7 @@ export const DataFormulatorFC = ({ }) => {
             });
             return () => cancelAnimationFrame(rafId);
         }
-    }, [threadCount, tables.length]);
+    }, [isBusinessInsight, threadCount, tables.length]);
 
     const fixedSplitPane = ( 
         <Box sx={{display: 'flex', flexDirection: 'row', height: '100%'}}>
@@ -570,9 +590,43 @@ export const DataFormulatorFC = ({ }) => {
                     display: 'flex', height: 'calc(100% - 12px)', flex: 1, minWidth: 0, flexDirection: 'column',
                     overflow: 'hidden',
                     position: 'relative'}}>
-                <Allotment ref={allotmentRef} onDragEnd={snapToColumns} proportionalLayout={false}>
+                {isBusinessInsight && isNarrowBusinessInsight ? (
+                    <Stack
+                        direction='row'
+                        spacing={1}
+                        sx={{ px: 1, py: 0.75, borderBottom: 1, borderColor: 'divider' }}
+                    >
+                        <Button
+                            size='small'
+                            variant={narrowBusinessInsightPane === 'data-agent' ? 'contained' : 'outlined'}
+                            onClick={() => setNarrowBusinessInsightPane('data-agent')}
+                        >
+                            {t('insight.layout.dataAgent')}
+                        </Button>
+                        <Button
+                            size='small'
+                            variant={narrowBusinessInsightPane === 'workspace' ? 'contained' : 'outlined'}
+                            onClick={() => setNarrowBusinessInsightPane('workspace')}
+                        >
+                            {t('insight.layout.workspace')}
+                        </Button>
+                    </Stack>
+                ) : null}
+                <Box sx={{ flex: 1, minHeight: 0 }}>
+                <Allotment
+                    ref={allotmentRef}
+                    onDragEnd={isBusinessInsight ? undefined : snapToColumns}
+                    proportionalLayout={isBusinessInsight}
+                    defaultSizes={isBusinessInsight ? [70, 30] : undefined}
+                >
                     {tables.length > 0 ? (
-                        <Allotment.Pane minSize={columnSize(1)} preferredSize={columnSize(preferredColumns)} maxSize={columnSize(3)} snap={false}>
+                        <Allotment.Pane
+                            minSize={isBusinessInsight ? (isNarrowBusinessInsight ? 0 : 520) : columnSize(1)}
+                            preferredSize={isBusinessInsight ? '70%' : columnSize(preferredColumns)}
+                            maxSize={isBusinessInsight ? undefined : columnSize(3)}
+                            visible={!isBusinessInsight || !isNarrowBusinessInsight || narrowBusinessInsightPane === 'data-agent'}
+                            snap={false}
+                        >
                             <DataThread sx={{
                                 display: 'flex', 
                                 flexDirection: 'column',
@@ -582,7 +636,11 @@ export const DataFormulatorFC = ({ }) => {
                             }}/>
                         </Allotment.Pane>
                     ) : null}
-                    <Allotment.Pane minSize={300}>
+                    <Allotment.Pane
+                        minSize={isBusinessInsight ? (isNarrowBusinessInsight ? 0 : 360) : 300}
+                        preferredSize={isBusinessInsight ? '30%' : undefined}
+                        visible={!isBusinessInsight || !isNarrowBusinessInsight || narrowBusinessInsightPane === 'workspace'}
+                    >
                         <Box sx={{ ...borderBoxStyle, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
                             {viewMode === 'editor' ? (
                                 visPane
@@ -592,6 +650,7 @@ export const DataFormulatorFC = ({ }) => {
                         </Box>
                     </Allotment.Pane>
                 </Allotment>
+                </Box>
             </Box>
         </Box>
     );

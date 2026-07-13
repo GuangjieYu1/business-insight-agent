@@ -13,6 +13,7 @@ import {
     agentRunEventsUrl,
     cancelAgentRun,
     createAgentRun,
+    listDataAgentLedgerRuns,
     listAgentRuns,
     readAgentRun,
     subscribeToAgentRunEvents,
@@ -117,6 +118,27 @@ describe('agentRunClient', () => {
                 body: JSON.stringify({ reason: 'Stop now' }),
             }),
         );
+    });
+
+    it('lists task-ledger runs by table name', async () => {
+        vi.mocked(apiRequest).mockResolvedValueOnce({
+            data: {
+                runs: [
+                    { id: 'run_ledger', execution_kind: 'data_agent_ledger' },
+                    { id: 'run_legacy', execution_kind: 'deterministic_insight' },
+                ],
+            } as any,
+        });
+
+        const runs = await listDataAgentLedgerRuns('sales table');
+
+        expect(apiRequest).toHaveBeenCalledWith(
+            '/api/insight/runs?tableName=sales+table',
+            expect.objectContaining({ method: 'GET' }),
+        );
+        expect(runs).toEqual([
+            expect.objectContaining({ id: 'run_ledger' }),
+        ]);
     });
 
     it('subscribes with a stable cursor and forwards named SSE events', () => {
