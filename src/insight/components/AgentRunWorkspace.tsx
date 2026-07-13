@@ -88,7 +88,7 @@ export function AgentRunWorkspace({ datasetId, versionId, onOpenCleaning }: Agen
         if (!resource || resource.status === 'idle') {
             void dispatch(restoreLatestAgentRun({ datasetId }));
         }
-    }, [datasetId, dispatch, resource, resource?.status]);
+    }, [datasetId, dispatch, resource?.status]);
 
     useEffect(() => {
         if (!run?.id || !shouldStream) return undefined;
@@ -302,13 +302,15 @@ export function AgentRunWorkspace({ datasetId, versionId, onOpenCleaning }: Agen
                 </Stack>
             )}
 
-            <ProcessDrawer
-                open={resource.processOpen}
-                run={run}
-                steps={steps}
-                t={t}
-                onClose={closeProcess}
-            />
+            {resource.processOpen ? (
+                <ProcessDrawer
+                    open
+                    run={run}
+                    steps={steps}
+                    t={t}
+                    onClose={closeProcess}
+                />
+            ) : null}
         </Stack>
     );
 }
