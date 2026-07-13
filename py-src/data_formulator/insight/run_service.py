@@ -103,6 +103,9 @@ def _validate_goal(
     *,
     workspace_id: str,
     goal_id: str | None,
+    dataset_id: str,
+    version_id: str,
+    columns: list[str],
 ) -> None:
     if goal_id is None:
         return
@@ -112,7 +115,27 @@ def _validate_goal(
         raise InsightRunError(str(exc)) from exc
     if goal is None:
         raise InsightRunNotFoundError(f"AnalysisGoal not found: {goal_id}")
+    if goal.status != "confirmed":
+        raise InsightRunConflictError("AnalysisGoal must be confirmed before starting a run")
+    if goal.dataset_id is not None and goal.dataset_id != dataset_id:
+        raise InsightRunConflictError("AnalysisGoal does not belong to the selected dataset")
+    if goal.dataset_version_id is not None and goal.dataset_version_id != version_id:
+        raise InsightRunConflictError("AnalysisGoal does not belong to the selected dataset version")
 
+    available = set(columns)
+    referenced = [goal.target_metric or goal.target_column, goal.time_column, *goal.dimensions]
+    referenced.extend(goal_filter.column for goal_filter in goal.filters)
+    missing = sorted(
+        {
+            field
+            for field in referenced
+            if isinstance(field, str) and field and field not in available
+        }
+    )
+    if missing:
+        raise InsightRunConflictError(
+            "AnalysisGoal references missing fields: " + ", ".join(missing)
+        )
 
 def _transition_run(
     run_store: RunStore,
@@ -216,7 +239,14 @@ def start_agent_run(
         dataset_id=dataset_id,
         version_id=version_id,
     )
-    _validate_goal(store, workspace_id=workspace_id, goal_id=goal_id)
+    _validate_goal(
+        store,
+        workspace_id=workspace_id,
+        goal_id=goal_id,
+        dataset_id=dataset.id,
+        version_id=version.id,
+        columns=[str(column) for column in store.read_parquet(version.file_ref).columns.tolist()],
+    )
 
     started_at = utc_now()
     run = AgentRun(

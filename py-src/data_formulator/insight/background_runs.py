@@ -168,7 +168,14 @@ def create_background_agent_run(
         dataset_id=dataset_id,
         version_id=version_id,
     )
-    _validate_goal(store, workspace_id=workspace_id, goal_id=goal_id)
+    _validate_goal(
+        store,
+        workspace_id=workspace_id,
+        goal_id=goal_id,
+        dataset_id=dataset.id,
+        version_id=version.id,
+        columns=[str(column) for column in store.read_parquet(version.file_ref).columns.tolist()],
+    )
 
     started_at = utc_now()
     run = AgentRun(
