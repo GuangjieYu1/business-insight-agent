@@ -1,13 +1,19 @@
-"""Business Insight AgentRun REST routes for Phase 5A."""
+"""Business Insight AgentRun REST and SSE routes."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from flask import request
+from flask import Response, request, stream_with_context
 
 from data_formulator.error_handler import json_ok
 from data_formulator.errors import AppError, ErrorCode
+from data_formulator.insight.run_events import (
+    events_after_cursor,
+    parse_event_cursor,
+    project_run_events,
+    stream_agent_run_events,
+)
 from data_formulator.insight.run_service import (
     InsightRunConflictError,
     InsightRunError,
@@ -119,6 +125,55 @@ def get_agent_run_steps_route(run_id: str):
             "steps": [step.model_dump(mode="json") for step in snapshot.steps],
         }
     )
+
+
+@insight_project_bp.route("/runs/<run_id>/events", methods=["GET"])
+def stream_agent_run_events_route(run_id: str):
+    _, workspace = _workspace_context()
+    store = _store_for(workspace)
+    workspace_id = _workspace_id(workspace)
+
+    cursor_value = (
+        request.headers.get("Last-Event-ID")
+        or request.args.get("afterEventId")
+        or request.args.get("after_event_id")
+    )
+    try:
+        after_event_id = parse_event_cursor(cursor_value)
+    except ValueError as exc:
+        raise AppError(ErrorCode.INVALID_REQUEST, str(exc)) from exc
+
+    try:
+        # Validate ownership, existence, and cursor before streaming begins so
+        # protocol errors retain the normal JSON error envelope.
+        snapshot = get_agent_run(
+            store,
+            workspace_id=workspace_id,
+            run_id=run_id,
+        )
+        events_after_cursor(project_run_events(snapshot), after_event_id)
+    except InsightRunError as exc:
+        raise _run_error(exc) from exc
+    except ValueError as exc:
+        raise AppError(ErrorCode.INVALID_REQUEST, str(exc)) from exc
+
+    def generate():
+        yield "retry: 3000\n\n"
+        yield from stream_agent_run_events(
+            store,
+            workspace_id=workspace_id,
+            run_id=run_id,
+            after_event_id=after_event_id,
+        )
+
+    response = Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+    )
+    response.headers["Cache-Control"] = "no-cache, no-transform"
+    response.headers["X-Accel-Buffering"] = "no"
+    response.headers["Connection"] = "keep-alive"
+    return response
 
 
 @insight_project_bp.route("/runs/<run_id>/cancel", methods=["POST"])
