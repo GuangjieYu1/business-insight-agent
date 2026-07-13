@@ -6,6 +6,7 @@ import { assembleVegaChart, prepVisTable } from '../app/utils';
 import { exportTableToDsv } from '../data/utils';
 import { ClientConfig } from '../app/dfSlice';
 import i18n from '../i18n';
+import { assertOnlineChartifactAllowed } from '../app/egressPolicy';
 
 // Function to generate CSS styling based on report type
 const generateStyleCSS = (style: string): string => {
@@ -238,6 +239,9 @@ ${JSON.stringify(modifiedSpec, null, 2)}
 
 // Function to open Chartifact in a new tab and send markdown via postMessage
 export const openChartifactViewer = async (chartifactMarkdown: string) => {
+    const { store } = await import('../app/store');
+    assertOnlineChartifactAllowed(store.getState().serverConfig);
+
     try {
         // Open the Chartifact viewer in a new tab
         const chartifactWindow = window.open(
