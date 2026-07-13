@@ -214,20 +214,24 @@ def _project_with_active_goal(
     workspace_id: str,
     goal_id: str,
 ) -> Project:
-    project = read_project(store)
-    if project is None:
-        project = ensure_project(store, workspace_id=workspace_id).project
-    if project.workspace_id != workspace_id:
-        raise InsightGoalConflictError("Project workspace_id does not match active workspace")
-    updated = project.model_copy(
-        update={
-            "active_goal_id": goal_id,
-            "updated_at": utc_now(),
-        }
-    )
-    store.write_json(PROJECT_PATH, updated)
+    with store.workspace_lock():
+        project = read_project(store)
+        if project is None:
+            project = Project(
+                id=new_id("project"),
+                workspace_id=workspace_id,
+                name="Business Insight Project",
+            )
+        if project.workspace_id != workspace_id:
+            raise InsightGoalConflictError("Project workspace_id does not match active workspace")
+        updated = project.model_copy(
+            update={
+                "active_goal_id": goal_id,
+                "updated_at": utc_now(),
+            }
+        )
+        store.write_json(PROJECT_PATH, updated)
     return updated
-
 
 def _goal_signature(goal: AnalysisGoal) -> tuple[Any, ...]:
     return (
@@ -471,6 +475,26 @@ def get_analysis_goal(
     return goal
 
 
+def _resolve_goal_intent(
+    store: InsightStore,
+    *,
+    workspace_id: str,
+    resolved: _ResolvedDatasetVersion,
+    candidate: GoalCandidate | None,
+    explicit_intent_id: str | None,
+) -> IntentRequest | None:
+    if candidate is not None and explicit_intent_id is not None and explicit_intent_id != candidate.intent_id:
+        raise InsightGoalConflictError("sourceCandidateId does not match intentId")
+    intent_id = candidate.intent_id if candidate is not None else explicit_intent_id
+    if intent_id is None:
+        return None
+    intent = IntentStore(store, workspace_id=workspace_id).read(intent_id)
+    if intent is None:
+        raise InsightIntentNotFoundError(f"IntentRequest not found: {intent_id}")
+    if intent.dataset_id != resolved.dataset_id or intent.dataset_version_id != resolved.version_id:
+        raise InsightGoalConflictError("IntentRequest does not match the selected dataset version")
+    return intent
+
 def create_analysis_goal(
     store: InsightStore,
     *,
@@ -485,14 +509,29 @@ def create_analysis_goal(
         dataset_id=dataset_id,
         dataset_version_id=dataset_version_id,
     )
+    explicit_intent_id = _optional_text(
+        payload.get("intentId") if payload.get("intentId") is not None else payload.get("intent_id"),
+        "intentId",
+    )
     candidate = None
-    source_candidate_id = _optional_text(payload.get("sourceCandidateId") if payload.get("sourceCandidateId") is not None else payload.get("source_candidate_id"), "sourceCandidateId")
+    source_candidate_id = _optional_text(
+        payload.get("sourceCandidateId") if payload.get("sourceCandidateId") is not None else payload.get("source_candidate_id"),
+        "sourceCandidateId",
+    )
     if source_candidate_id is not None:
         candidate = GoalCandidateStore(store, workspace_id=workspace_id).read(source_candidate_id)
         if candidate is None:
             raise InsightGoalNotFoundError(f"GoalCandidate not found: {source_candidate_id}")
         if candidate.dataset_id != resolved.dataset_id or candidate.dataset_version_id != resolved.version_id:
             raise InsightGoalConflictError("GoalCandidate does not belong to the selected dataset version")
+
+    intent = _resolve_goal_intent(
+        store,
+        workspace_id=workspace_id,
+        resolved=resolved,
+        candidate=candidate,
+        explicit_intent_id=explicit_intent_id,
+    )
 
     goal = _goal_from_candidate(
         workspace_id=workspace_id,
@@ -501,6 +540,7 @@ def create_analysis_goal(
         payload=payload,
     )
     goal_store = GoalStore(store, workspace_id=workspace_id)
+    intent_store = IntentStore(store, workspace_id=workspace_id)
     for existing in goal_store.list():
         if _goal_signature(existing) == _goal_signature(goal):
             project = _project_with_active_goal(
@@ -508,24 +548,18 @@ def create_analysis_goal(
                 workspace_id=workspace_id,
                 goal_id=existing.id,
             )
-            if existing.intent_id is not None:
-                intent_store = IntentStore(store, workspace_id=workspace_id)
-                intent = intent_store.read(existing.intent_id)
-                if intent is not None and intent.status != "confirmed":
-                    intent_store.update(intent.model_copy(update={"status": "confirmed", "updated_at": utc_now()}))
+            if intent is not None and intent.status != "confirmed":
+                intent_store.update(
+                    intent.model_copy(update={"status": "confirmed", "updated_at": utc_now()})
+                )
             return GoalMutationResult(goal=existing, project=project, created=False)
 
     goal = goal_store.create(goal)
-    if goal.intent_id is not None:
-        intent_store = IntentStore(store, workspace_id=workspace_id)
-        intent = intent_store.read(goal.intent_id)
-        if intent is None:
-            raise InsightIntentNotFoundError(f"IntentRequest not found: {goal.intent_id}")
-        if intent.dataset_id != goal.dataset_id or intent.dataset_version_id != goal.dataset_version_id:
-            raise InsightGoalConflictError("IntentRequest does not match the selected dataset version")
+    if intent is not None and intent.status != "confirmed":
         intent_store.update(intent.model_copy(update={"status": "confirmed", "updated_at": utc_now()}))
     project = _project_with_active_goal(store, workspace_id=workspace_id, goal_id=goal.id)
     return GoalMutationResult(goal=goal, project=project, created=True)
+
 
 
 def update_analysis_goal(
@@ -547,6 +581,29 @@ def update_analysis_goal(
     candidate = None
     if existing.source_candidate_id is not None:
         candidate = GoalCandidateStore(store, workspace_id=workspace_id).read(existing.source_candidate_id)
+        if candidate is None:
+            raise InsightGoalNotFoundError(
+                f"GoalCandidate not found: {existing.source_candidate_id}"
+            )
+    explicit_intent_id = _optional_text(existing.intent_id, "intentId")
+    intent = _resolve_goal_intent(
+        store,
+        workspace_id=workspace_id,
+        resolved=resolved,
+        candidate=candidate,
+        explicit_intent_id=explicit_intent_id,
+    )
+
+    requested_status = payload.get("status") if "status" in payload else existing.status
+    if requested_status not in {"candidate", "confirmed", "rejected"}:
+        raise InsightGoalConflictError("status is invalid")
+    if existing.status == "confirmed" and requested_status != "confirmed":
+        raise InsightGoalConflictError("Confirmed AnalysisGoal cannot transition to a non-confirmed state")
+    if existing.status == "rejected" and requested_status != "rejected":
+        raise InsightGoalConflictError("Rejected AnalysisGoal cannot transition to a different state")
+    if existing.status == "candidate" and requested_status not in {"candidate", "confirmed"}:
+        raise InsightGoalConflictError("Candidate AnalysisGoal can only remain candidate or become confirmed")
+
     merged_payload = {
         "goalId": existing.id,
         "title": payload.get("title", existing.title),
@@ -571,13 +628,15 @@ def update_analysis_goal(
         update={
             "created_at": existing.created_at,
             "updated_at": utc_now(),
-            "status": payload.get("status") or existing.status,
+            "status": requested_status,
         }
     )
-    if updated.status not in {"candidate", "confirmed", "rejected"}:
-        raise InsightGoalConflictError("status is invalid")
     goal_store = GoalStore(store, workspace_id=workspace_id)
     updated = goal_store.update(updated)
+    if intent is not None and updated.status == "confirmed" and intent.status != "confirmed":
+        IntentStore(store, workspace_id=workspace_id).update(
+            intent.model_copy(update={"status": "confirmed", "updated_at": utc_now()})
+        )
     project = (
         _project_with_active_goal(store, workspace_id=workspace_id, goal_id=updated.id)
         if updated.status == "confirmed"

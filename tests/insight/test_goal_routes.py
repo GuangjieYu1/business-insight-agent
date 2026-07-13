@@ -289,3 +289,120 @@ def test_runs_reject_unconfirmed_or_mismatched_goals(tmp_path: Path, monkeypatch
     assert mismatched_payload["status"] == "error"
     assert mismatched_payload["error"]["code"] == "VALIDATION_ERROR"
     assert "dataset version" in mismatched_payload["error"]["message"]
+
+def test_goal_creation_rejects_missing_or_spoofed_intent_without_persisting_goal(tmp_path: Path, monkeypatch):
+    workspace, client, headers = _seed_workspace(tmp_path, monkeypatch)
+    store = LocalInsightStore(workspace.confined_root.root)
+
+    missing_intent = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "intentId": "intent_missing",
+            "goalType": "driver_analysis",
+            "title": "Analyze revenue drivers",
+            "targetMetric": "revenue",
+            "dimensions": ["region"],
+        },
+        headers=headers,
+    )
+    missing_payload = missing_intent.get_json()
+    assert missing_payload["status"] == "error"
+    assert missing_payload["error"]["code"] == "TABLE_NOT_FOUND"
+    assert GoalStore(store, workspace_id=WORKSPACE_ID).list() == []
+
+    intent_response = client.post(
+        "/api/insight/intents",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "userInput": "why did revenue decline?",
+            "goalCandidates": [
+                {
+                    "title": "Analyze revenue decline drivers",
+                    "goalType": "driver_analysis",
+                    "targetMetric": "revenue",
+                    "dimensions": ["region"],
+                    "timeColumn": "date",
+                }
+            ],
+        },
+        headers=headers,
+    )
+    candidate = intent_response.get_json()["data"]["goalCandidates"][0]
+
+    spoofed_intent = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "sourceCandidateId": candidate["id"],
+            "intentId": "intent_other",
+        },
+        headers=headers,
+    )
+    spoofed_payload = spoofed_intent.get_json()
+    assert spoofed_payload["status"] == "error"
+    assert spoofed_payload["error"]["code"] == "VALIDATION_ERROR"
+    assert "does not match intentId" in spoofed_payload["error"]["message"]
+    assert GoalStore(store, workspace_id=WORKSPACE_ID).list() == []
+
+
+
+def test_confirmed_goal_keeps_intent_confirmed_and_rejects_status_regression(tmp_path: Path, monkeypatch):
+    _, client, headers = _seed_workspace(tmp_path, monkeypatch)
+    intent_response = client.post(
+        "/api/insight/intents",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "userInput": "why did revenue decline?",
+            "goalCandidates": [
+                {
+                    "title": "Analyze revenue decline drivers",
+                    "goalType": "driver_analysis",
+                    "targetMetric": "revenue",
+                    "dimensions": ["region"],
+                    "timeColumn": "date",
+                }
+            ],
+        },
+        headers=headers,
+    )
+    intent_payload = intent_response.get_json()["data"]
+    candidate = intent_payload["goalCandidates"][0]
+    intent_id = intent_payload["intent"]["id"]
+
+    create_goal = client.post(
+        "/api/insight/goals",
+        json={
+            "datasetId": DATASET_ID,
+            "datasetVersionId": "version_000",
+            "sourceCandidateId": candidate["id"],
+        },
+        headers=headers,
+    )
+    goal_id = create_goal.get_json()["data"]["goal"]["id"]
+
+    confirmed_intent = client.get(
+        f"/api/insight/intents/{intent_id}",
+        headers=headers,
+    )
+    assert confirmed_intent.get_json()["data"]["intent"]["status"] == "confirmed"
+
+    regressed = client.patch(
+        f"/api/insight/goals/{goal_id}",
+        json={"status": "candidate"},
+        headers=headers,
+    )
+    regressed_payload = regressed.get_json()
+    assert regressed_payload["status"] == "error"
+    assert regressed_payload["error"]["code"] == "VALIDATION_ERROR"
+    assert "non-confirmed" in regressed_payload["error"]["message"]
+
+    loaded = client.get(
+        f"/api/insight/goals/{goal_id}",
+        headers=headers,
+    )
+    assert loaded.get_json()["data"]["goal"]["status"] == "confirmed"
