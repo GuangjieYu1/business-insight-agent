@@ -53,7 +53,7 @@ def _parse_sse(text: str) -> list[dict[str, object]]:
         item: dict[str, object] = {}
         for line in block.splitlines():
             if line.startswith("id: "):
-                item["id"] = int(line[4:])
+                item["id"] = line[4:]
             elif line.startswith("event: "):
                 item["event"] = line[7:]
             elif line.startswith("data: "):
@@ -77,10 +77,17 @@ def test_projected_run_events_are_ordered_and_replayable(tmp_path: Path):
     )
 
     events = project_run_events(snapshot)
+    event_ids = [event.id for event in events]
 
-    assert [event.id for event in events] == list(range(len(events)))
+    assert len(event_ids) == len(set(event_ids))
+    assert events[0].id == snapshot.steps[0].id
     assert events[0].event_type == "run_started"
     assert [event.event_type for event in events].count("stage_changed") == 4
+    assert all(
+        event.id.endswith(":stage")
+        for event in events
+        if event.event_type == "stage_changed"
+    )
     assert events[-1].event_type == "approval_required"
     assert events[-1].payload["stage"] == "waiting_approval"
     assert events[-1].payload["runId"] == started.run.id
@@ -92,15 +99,15 @@ def test_projected_run_events_are_ordered_and_replayable(tmp_path: Path):
 
 
 def test_event_cursor_validation():
-    assert parse_event_cursor(None) == -1
-    assert parse_event_cursor("") == -1
-    assert parse_event_cursor("0") == 0
-    assert parse_event_cursor("42") == 42
+    assert parse_event_cursor(None) is None
+    assert parse_event_cursor("") is None
+    assert parse_event_cursor(" step_001 ") == "step_001"
+    assert parse_event_cursor("step_001:stage") == "step_001:stage"
 
-    with pytest.raises(ValueError, match="non-negative integer"):
-        parse_event_cursor("-1")
-    with pytest.raises(ValueError, match="non-negative integer"):
-        parse_event_cursor("not-a-number")
+    with pytest.raises(ValueError, match="invalid"):
+        parse_event_cursor("bad\ncursor")
+    with pytest.raises(ValueError, match="invalid"):
+        parse_event_cursor("x" * 257)
 
 
 def test_active_run_stream_emits_heartbeat_after_persisted_events(tmp_path: Path):
@@ -143,8 +150,10 @@ def test_active_run_stream_emits_heartbeat_after_persisted_events(tmp_path: Path
     assert "event: step_progress" in body
     assert "event: heartbeat" in body
     heartbeat = _parse_sse(body)[-1]
+    heartbeat_data = heartbeat["data"]
+    assert isinstance(heartbeat_data, dict)
     assert heartbeat["event"] == "heartbeat"
-    assert heartbeat["data"]["runId"] == run.id
+    assert heartbeat_data["runId"] == run.id
     assert "id" not in heartbeat
 
 
@@ -206,6 +215,7 @@ def test_sse_route_replays_events_and_supports_last_event_id(tmp_path: Path, mon
     )
     body = response.get_data(as_text=True)
     events = _parse_sse(body)
+    event_ids = [str(event["id"]) for event in events]
 
     assert response.status_code == 200
     assert response.mimetype == "text/event-stream"
@@ -214,10 +224,11 @@ def test_sse_route_replays_events_and_supports_last_event_id(tmp_path: Path, mon
     assert body.startswith("retry: 3000\n\n")
     assert events[0]["event"] == "run_started"
     assert events[-1]["event"] == "approval_required"
-    assert [event["id"] for event in events] == list(range(len(events)))
+    assert len(event_ids) == len(set(event_ids))
 
-    cursor = int(events[3]["id"])
-    resumed_headers = {**headers, "Last-Event-ID": str(cursor)}
+    cursor_index = 3
+    cursor = event_ids[cursor_index]
+    resumed_headers = {**headers, "Last-Event-ID": cursor}
     resumed = client.get(
         f"/api/insight/runs/{run_id}/events",
         headers=resumed_headers,
@@ -225,12 +236,11 @@ def test_sse_route_replays_events_and_supports_last_event_id(tmp_path: Path, mon
     )
     resumed_events = _parse_sse(resumed.get_data(as_text=True))
 
-    assert resumed_events
-    assert all(int(event["id"]) > cursor for event in resumed_events)
+    assert [event["id"] for event in resumed_events] == event_ids[cursor_index + 1 :]
     assert resumed_events[-1]["event"] == "approval_required"
 
 
-def test_sse_route_supports_query_cursor_and_rejects_invalid_cursor(tmp_path: Path, monkeypatch):
+def test_sse_route_supports_query_cursor_and_rejects_unknown_cursor(tmp_path: Path, monkeypatch):
     workspace = Workspace("local:test", workspace_path=tmp_path / "workspace")
     workspace.write_parquet(
         pd.DataFrame({"constant": ["same", "same"]}),
@@ -247,7 +257,7 @@ def test_sse_route_supports_query_cursor_and_rejects_invalid_cursor(tmp_path: Pa
         buffered=True,
     )
     full_events = _parse_sse(full.get_data(as_text=True))
-    cursor = int(full_events[-2]["id"])
+    cursor = str(full_events[-2]["id"])
 
     resumed = client.get(
         f"/api/insight/runs/{run_id}/events?afterEventId={cursor}",
@@ -258,7 +268,7 @@ def test_sse_route_supports_query_cursor_and_rejects_invalid_cursor(tmp_path: Pa
     assert [event["id"] for event in resumed_events] == [full_events[-1]["id"]]
 
     invalid = client.get(
-        f"/api/insight/runs/{run_id}/events?afterEventId=bad",
+        f"/api/insight/runs/{run_id}/events?afterEventId=unknown_step",
         headers=headers,
         buffered=True,
     )
