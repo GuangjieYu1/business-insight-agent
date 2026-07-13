@@ -1,6 +1,6 @@
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -100,7 +100,7 @@ describe('AgentRunWorkspace', () => {
         vi.clearAllMocks();
     });
 
-    it('restores a completed run, collapses the process, and opens the full history drawer', async () => {
+    it('restores a completed run, presents the conclusion, and opens the full history drawer', async () => {
         vi.mocked(listAgentRuns).mockResolvedValue([baseRun]);
         vi.mocked(readAgentRun).mockResolvedValue({
             run: baseRun,
@@ -112,12 +112,13 @@ describe('AgentRunWorkspace', () => {
 
         expect(await screen.findByText('Data quality review complete')).toBeInTheDocument();
         expect(screen.getByText('No deterministic cleaning approval is required.')).toBeInTheDocument();
-        expect(screen.queryByText('Analysis run completed')).not.toBeInTheDocument();
+        expect(screen.getByText('insight.run.final.limitations')).toBeInTheDocument();
+        expect(screen.getByText('insight.run.final.nextSteps')).toBeInTheDocument();
 
         fireEvent.click(screen.getByText('insight.run.viewFullProcess'));
 
         expect(await screen.findByText('insight.run.processDrawer.title')).toBeInTheDocument();
-        expect(screen.getByText('Analysis run completed')).toBeInTheDocument();
+        expect((await screen.findAllByText('Analysis run completed')).length).toBeGreaterThan(0);
         expect(screen.getByText('Run run_1')).toBeInTheDocument();
     });
 
@@ -150,8 +151,8 @@ describe('AgentRunWorkspace', () => {
         renderWorkspace(onOpenCleaning);
 
         expect(await screen.findByText('insight.run.waitingApproval')).toBeInTheDocument();
+        expect((await screen.findAllByText('Cleaning approval required')).length).toBeGreaterThan(0);
         fireEvent.click(screen.getByText('insight.run.openCleaning'));
         expect(onOpenCleaning).toHaveBeenCalledTimes(1);
-        await waitFor(() => expect(screen.getByText('Cleaning approval required')).toBeInTheDocument());
     });
 });
