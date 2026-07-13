@@ -123,6 +123,7 @@ def create_agent_run_route():
                 {
                     "run": created.run.model_dump(mode="json"),
                     "steps": [step.model_dump(mode="json") for step in created.steps],
+                    "finalSummary": None,
                     "profile": None,
                     "proposals": [],
                     "executionMode": "background",
@@ -143,6 +144,7 @@ def create_agent_run_route():
         {
             "run": result.run.model_dump(mode="json"),
             "steps": [step.model_dump(mode="json") for step in result.steps],
+            "finalSummary": None,
             "profile": result.profile.model_dump(mode="json"),
             "proposals": [
                 proposal.model_dump(mode="json") for proposal in result.proposals
