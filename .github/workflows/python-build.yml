@@ -47,10 +47,10 @@ jobs:
       run: yarn vitest run tests/frontend/unit/insight/agentRunClient.test.ts
     - name: Test AgentRun Redux recovery
       run: yarn vitest run tests/frontend/unit/insight/agentRunSlice.test.ts
-    - name: Test completed AgentRun conclusion
-      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "presents the final conclusion"
+    - name: Test completed AgentRun final conclusion
+      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "restores a completed run"
     - name: Test AgentRun process drawer
-      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "opens the persisted process drawer"
+      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "renders the complete persisted analysis process"
     - name: Test AgentRun approval handoff
       run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "restores a waiting-approval run"
     - name: Build frontend
