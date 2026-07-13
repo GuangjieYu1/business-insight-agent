@@ -9,7 +9,9 @@ from flask import Response, request, stream_with_context
 from data_formulator.error_handler import json_ok
 from data_formulator.errors import AppError, ErrorCode
 from data_formulator.insight.run_events import (
+    events_after_cursor,
     parse_event_cursor,
+    project_run_events,
     stream_agent_run_events,
 )
 from data_formulator.insight.run_service import (
@@ -142,14 +144,18 @@ def stream_agent_run_events_route(run_id: str):
         raise AppError(ErrorCode.INVALID_REQUEST, str(exc)) from exc
 
     try:
-        # Validate ownership and existence before the streaming response begins.
-        get_agent_run(
+        # Validate ownership, existence, and cursor before streaming begins so
+        # protocol errors retain the normal JSON error envelope.
+        snapshot = get_agent_run(
             store,
             workspace_id=workspace_id,
             run_id=run_id,
         )
+        events_after_cursor(project_run_events(snapshot), after_event_id)
     except InsightRunError as exc:
         raise _run_error(exc) from exc
+    except ValueError as exc:
+        raise AppError(ErrorCode.INVALID_REQUEST, str(exc)) from exc
 
     def generate():
         yield "retry: 3000\n\n"
