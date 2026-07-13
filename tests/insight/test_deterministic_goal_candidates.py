@@ -89,6 +89,7 @@ def test_prefers_trend_before_driver_when_metric_is_ambiguous():
     result = generate_goal_candidates(workspace_id=WORKSPACE_ID, intent_id="intent_1", dataset_id=DATASET_ID, dataset_version_id="version_000", user_input="\u4e3a\u4ec0\u4e48\u6700\u8fd1\u6536\u5165\u4e0b\u964d\u4e86", profile=_base_profile())
     assert result.candidates[0].goal_type == GoalType.TREND_ANALYSIS
     assert result.candidates[1].goal_type == GoalType.DRIVER_ANALYSIS
+    assert " / " in result.candidates[0].title
     assert result.questions[0].text_code == "insight.metricQuestion"
     assert {option.label for option in result.questions[0].options} >= {"revenue", "sales_amount"}
 

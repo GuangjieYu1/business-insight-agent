@@ -368,6 +368,13 @@ def _goal_signature(goal: AnalysisGoal) -> tuple[Any, ...]:
     )
 
 
+def _payload_entry(payload: dict[str, Any], *field_names: str) -> tuple[bool, Any]:
+    for field_name in field_names:
+        if field_name in payload:
+            return True, payload[field_name]
+    return False, None
+
+
 def _goal_from_candidate(
     *,
     workspace_id: str,
@@ -375,57 +382,33 @@ def _goal_from_candidate(
     candidate: GoalCandidate | None,
     payload: dict[str, Any],
 ) -> AnalysisGoal:
-    title = _optional_text(payload.get("title"), "title") or (candidate.title if candidate else None)
+    title_provided, raw_title = _payload_entry(payload, "title")
+    title = _optional_text(raw_title, "title") if title_provided else (candidate.title if candidate else None)
     if title is None:
         raise InsightGoalConflictError("title is required")
-    goal_type = (
-        _resolve_goal_type(payload["goalType"], "goalType")
-        if payload.get("goalType") is not None
-        else (candidate.goal_type if candidate is not None else None)
-    )
+    goal_type_provided, raw_goal_type = _payload_entry(payload, "goalType", "goal_type")
+    goal_type = _resolve_goal_type(raw_goal_type, "goalType") if goal_type_provided else (candidate.goal_type if candidate is not None else None)
     if goal_type is None:
         raise InsightGoalConflictError("goalType is required")
-    target_metric = _optional_text(payload.get("targetMetric"), "targetMetric")
-    if target_metric is None and candidate is not None:
-        target_metric = candidate.target_metric
-    dimensions = (
-        _normalize_string_list(payload.get("dimensions"), "dimensions")
-        if payload.get("dimensions") is not None
-        else (list(candidate.dimensions) if candidate is not None else [])
-    )
-    time_column = _optional_text(payload.get("timeColumn"), "timeColumn")
-    if time_column is None and candidate is not None:
-        time_column = candidate.time_column
-    filters = (
-        _normalize_filters(payload.get("filters"))
-        if payload.get("filters") is not None
-        else (list(candidate.filters) if candidate is not None else [])
-    )
-    description = _optional_text(payload.get("description"), "description") or (
-        candidate.description if candidate is not None else ""
-    )
-    reasoning = (
-        _normalize_string_list(payload.get("reasoning"), "reasoning")
-        if payload.get("reasoning") is not None
-        else (list(candidate.assumptions) if candidate is not None else [])
-    )
-    confidence = (
-        _optional_float(payload.get("confidence"), "confidence", default=0.0)
-        if payload.get("confidence") is not None
-        else (candidate.confidence if candidate is not None else 0.0)
-    )
-    task_type = payload.get("taskType") or payload.get("task_type") or "descriptive"
+    target_provided, raw_target_metric = _payload_entry(payload, "targetMetric", "target_metric")
+    target_metric = _optional_text(raw_target_metric, "targetMetric") if target_provided else (candidate.target_metric if candidate is not None else None)
+    dimensions_provided, raw_dimensions = _payload_entry(payload, "dimensions")
+    dimensions = _normalize_string_list(raw_dimensions, "dimensions") if dimensions_provided else (list(candidate.dimensions) if candidate is not None else [])
+    time_provided, raw_time_column = _payload_entry(payload, "timeColumn", "time_column")
+    time_column = _optional_text(raw_time_column, "timeColumn") if time_provided else (candidate.time_column if candidate is not None else None)
+    filters_provided, raw_filters = _payload_entry(payload, "filters")
+    filters = _normalize_filters(raw_filters) if filters_provided else (list(candidate.filters) if candidate is not None else [])
+    description_provided, raw_description = _payload_entry(payload, "description")
+    description = (_optional_text(raw_description, "description") or "") if description_provided else (candidate.description if candidate is not None else "")
+    reasoning_provided, raw_reasoning = _payload_entry(payload, "reasoning")
+    reasoning = _normalize_string_list(raw_reasoning, "reasoning") if reasoning_provided else (list(candidate.assumptions) if candidate is not None else [])
+    confidence_provided, raw_confidence = _payload_entry(payload, "confidence")
+    confidence = _optional_float(raw_confidence, "confidence", default=0.0) if confidence_provided else (candidate.confidence if candidate is not None else 0.0)
+    task_type_provided, raw_task_type = _payload_entry(payload, "taskType", "task_type")
+    task_type = (raw_task_type or "descriptive") if task_type_provided else "descriptive"
     if task_type not in {"descriptive", "regression", "classification", "forecasting", "anomaly"}:
         raise InsightGoalConflictError("taskType is invalid")
-
-    _validate_field_references(
-        columns=resolved.columns,
-        target_metric=target_metric,
-        dimensions=dimensions,
-        time_column=time_column,
-        filters=filters,
-    )
-
+    _validate_field_references(columns=resolved.columns, target_metric=target_metric, dimensions=dimensions, time_column=time_column, filters=filters)
     return AnalysisGoal(
         id=_optional_text(payload.get("goalId"), "goalId") or new_id("goal"),
         workspace_id=workspace_id,
