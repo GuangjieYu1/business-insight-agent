@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
-import type { DataFormulatorState } from '../../app/dfSlice';
+import { dfActions, type DataFormulatorState } from '../../app/dfSlice';
 import {
     cancelAgentRun,
     createAgentRun,
@@ -41,7 +41,8 @@ export interface AgentRunRootState extends DataFormulatorState {
     agentRun: AgentRunState;
 }
 
-const initialState: AgentRunState = { resources: {} };
+const createInitialAgentRunState = (): AgentRunState => ({ resources: {} });
+const initialState: AgentRunState = createInitialAgentRunState();
 
 function createResource(datasetId: string): AgentRunResourceState {
     return {
@@ -168,7 +169,7 @@ const agentRunSlice = createSlice({
         clearAgentRunResource: (state, action: PayloadAction<{ datasetId: string }>) => {
             delete state.resources[action.payload.datasetId];
         },
-        clearAgentRunState: () => initialState,
+        clearAgentRunState: () => createInitialAgentRunState(),
     },
     extraReducers: (builder) => {
         builder.addCase(restoreLatestAgentRun.pending, (state, action) => {
@@ -188,6 +189,7 @@ const agentRunSlice = createSlice({
             resource.finalSummary = action.payload?.finalSummary ?? null;
             resource.lastEventId = null;
             resource.connectionStatus = 'disconnected';
+            resource.processOpen = false;
         });
         builder.addCase(restoreLatestAgentRun.rejected, (state, action) => {
             const resource = ensureResource(state, action.meta.arg.datasetId);
@@ -203,7 +205,7 @@ const agentRunSlice = createSlice({
             resource.error = null;
             resource.currentRequestId = action.meta.requestId;
             resource.lastEventId = null;
-            resource.processOpen = true;
+            resource.processOpen = false;
         });
         builder.addCase(startObservableAgentRun.fulfilled, (state, action) => {
             const resource = ensureResource(state, action.meta.arg.datasetId);
@@ -249,6 +251,10 @@ const agentRunSlice = createSlice({
             const resource = ensureResource(state, action.meta.arg.datasetId);
             resource.error = action.payload ?? null;
         });
+
+        builder.addCase(dfActions.setActiveWorkspace, () => createInitialAgentRunState());
+        builder.addCase(dfActions.resetForNewWorkspace, () => createInitialAgentRunState());
+        builder.addCase(dfActions.loadState, () => createInitialAgentRunState());
     },
 });
 
