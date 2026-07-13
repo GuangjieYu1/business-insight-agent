@@ -27,7 +27,7 @@ export function ProcessDrawer({ open, run, steps, t, onClose }: ProcessDrawerPro
             anchor="right"
             open={open}
             onClose={onClose}
-            slotProps={{ paper: { sx: { width: { xs: '100%', sm: 480 }, maxWidth: '100%' } } }}
+            PaperProps={{ sx: { width: { xs: '100%', sm: 480 }, maxWidth: '100%' } }}
         >
             <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 2, py: 1.5 }}>
