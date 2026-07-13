@@ -111,6 +111,7 @@ import PublicIcon from '@mui/icons-material/Public';
 import { useTranslation } from 'react-i18next';
 import { syncVegaLocale } from '../lib/vega-locale';
 import { DEFAULT_BRAND_NAME, getBrandName } from './productConfig';
+import { RemoteServiceStatus } from '../insight/components/RemoteServiceStatus';
 
 // Discord Icon Component
 const DiscordIcon: FC<{ sx?: any }> = ({ sx }) => (
@@ -841,6 +842,10 @@ const AppShell: FC = () => {
                         )}
                         {isAppPage && (
                             <Box sx={{ display: 'flex', ml: 'auto', fontSize: 14, alignItems: 'center' }}>
+                                <RemoteServiceStatus
+                                    productMode={serverConfig.APP_PRODUCT_MODE}
+                                    services={serverConfig.REMOTE_ANALYSIS_SERVICES}
+                                />
                                 <LanguageSwitcher />
                                 <ConfigDialog />
                                 <Divider orientation="vertical" variant="middle" flexItem />

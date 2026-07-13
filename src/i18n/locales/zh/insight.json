@@ -7,6 +7,8 @@
   "insight.tabs.process": "\u4efb\u52a1\u8fc7\u7a0b",
   "insight.layout.dataAgent": "\u6570\u636e Agent",
   "insight.layout.workspace": "\u5206\u6790\u5de5\u4f5c\u533a",
+  "insight.egress.remoteOff": "\u8fdc\u7a0b\u5206\u6790\uff1a\u5df2\u5173\u95ed",
+  "insight.egress.remoteEnabled": "\u8fdc\u7a0b\u63a5\u6536\u65b9\uff1a{{recipients}}",
   "insight.ledger.loading": "\u6b63\u5728\u52a0\u8f7d\u6700\u65b0\u7684 Data Agent \u4efb\u52a1...",
   "insight.ledger.error": "\u4efb\u52a1\u8d26\u672c\u52a0\u8f7d\u5931\u8d25\u3002",
   "insight.ledger.retry": "\u91cd\u8bd5",

@@ -75,6 +75,18 @@ export interface ServerConfig {
     DATA_FORMULATOR_HOME?: string;
     DEV_MODE: boolean;
     WORKSPACE_BACKEND: 'local' | 'azure_blob' | 'ephemeral';
+    DATA_EGRESS_POLICY:
+        | 'standard_data_formulator'
+        | 'local_workspace_and_selected_model'
+        | 'admin_enabled_remote_services';
+    LITELLM_TELEMETRY_DISABLED: boolean;
+    BIA_AZURE_WORKSPACE_BLOCKED: boolean;
+    BIA_ONLINE_CHARTIFACT_BLOCKED: boolean;
+    REMOTE_ANALYSIS_SERVICES: Array<{
+        service_id: string;
+        display_name: string;
+        domain: string;
+    }>;
     AUTH_PROVIDER?: string;
     AUTH_INFO?: {
         action: 'frontend' | 'redirect' | 'transparent' | 'none';
@@ -295,6 +307,11 @@ const initialState: DataFormulatorState = {
         APP_BRAND_DESCRIPTION: DEFAULT_BRAND_DESCRIPTION,
         DEV_MODE: false,
         WORKSPACE_BACKEND: 'local',
+        DATA_EGRESS_POLICY: 'standard_data_formulator',
+        LITELLM_TELEMETRY_DISABLED: true,
+        BIA_AZURE_WORKSPACE_BLOCKED: false,
+        BIA_ONLINE_CHARTIFACT_BLOCKED: false,
+        REMOTE_ANALYSIS_SERVICES: [],
     },
 
     config: {

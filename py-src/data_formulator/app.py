@@ -47,6 +47,13 @@ APP_ROOT = Path(Path(__file__).parent).absolute()
 load_dotenv(os.path.join(APP_ROOT, "..", "..", '.env'))
 load_dotenv(os.path.join(APP_ROOT, '.env'))
 
+from data_formulator.insight.egress import (
+    build_egress_frontend_config,
+    configure_litellm_egress,
+    configure_remote_analysis_registry,
+    enforce_bia_workspace_policy,
+)
+
 # Create Flask app (lightweight, no heavy imports yet)
 app = Flask(__name__, static_url_path='', static_folder=os.path.join(APP_ROOT, "dist"))
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(16)
@@ -124,6 +131,10 @@ app.config['CLI_ARGS'] = {
         lang.strip() for lang in os.environ.get('AVAILABLE_LANGUAGES', 'en,zh').split(',') if lang.strip()
     ],
 }
+configure_remote_analysis_registry(
+    product_mode=app.config['CLI_ARGS']['product_mode'],
+)
+configure_litellm_egress(product_mode=app.config['CLI_ARGS']['product_mode'])
 
 # Get logger for this module (logging config moved to run_app function)
 logger = logging.getLogger(__name__)
@@ -250,6 +261,11 @@ def _safety_checks():
     cli = app.config.get('CLI_ARGS', {})
     backend = cli.get('workspace_backend', 'local')
     sandbox = cli.get('sandbox', 'not_a_sandbox')
+    product_mode = cli.get('product_mode', ProductMode.DATA_FORMULATOR.value)
+    enforce_bia_workspace_policy(
+        product_mode=product_mode,
+        workspace_backend=backend,
+    )
     multi_user = backend != 'local'
 
     if multi_user and sandbox == 'not_a_sandbox':
@@ -304,6 +320,7 @@ def get_app_config():
         "WORKSPACE_BACKEND": workspace_backend,
         "AVAILABLE_LANGUAGES": args.get('available_languages', ['en', 'zh']),
         **brand.as_frontend_config(),
+        **build_egress_frontend_config(product_mode=brand.mode.value),
     }
 
     from data_formulator.auth.identity import is_local_mode
@@ -460,6 +477,9 @@ def run_app():
             lang.strip() for lang in os.environ.get('AVAILABLE_LANGUAGES', 'en,zh').split(',') if lang.strip()
         ],
     }
+    configure_remote_analysis_registry(product_mode=args.product_mode)
+    configure_litellm_egress(product_mode=args.product_mode)
+    _safety_checks()
     
     # Register blueprints (this is where heavy imports happen)
     _register_blueprints()

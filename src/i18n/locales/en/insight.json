@@ -7,6 +7,8 @@
   "insight.tabs.process": "Task Process",
   "insight.layout.dataAgent": "Data Agent",
   "insight.layout.workspace": "Insight workspace",
+  "insight.egress.remoteOff": "Remote analysis: off",
+  "insight.egress.remoteEnabled": "Remote receivers: {{recipients}}",
   "insight.ledger.loading": "Loading the latest Data Agent task...",
   "insight.ledger.error": "The task ledger could not be loaded.",
   "insight.ledger.retry": "Retry",
