@@ -253,7 +253,7 @@ def _register_blueprints():
         from data_formulator.data_connector import register_data_connectors
         register_data_connectors(app)
     if app.config['CLI_ARGS'].get('disable_data_connectors'):
-        print("  External data connectors disabled (DISABLE_DATA_CONNECTORS=true) — sample datasets remain available", flush=True)
+        print("  External data connectors disabled (DISABLE_DATA_CONNECTORS=true) - sample datasets remain available", flush=True)
 
 
 def _safety_checks():
@@ -396,26 +396,32 @@ def parse_args() -> argparse.Namespace:
         choices=['local', 'docker'],
         help="Python code execution backend: 'local' (default, isolated subprocess with audit hooks), "
              "'docker' (maximum isolation, requires Docker)")
-    parser.add_argument("--disable-display-keys", action='store_true', default=False,
+    parser.add_argument("--disable-display-keys", action='store_true',
+        default=app.config['CLI_ARGS'].get('disable_display_keys', False),
         help="Whether disable displaying keys in the frontend UI, recommended to turn on if you host the app not just for yourself.")
-    parser.add_argument("--disable-database", action='store_true', default=False,
+    parser.add_argument("--disable-database", action='store_true',
+        default=_disable_database,
         help="Multi-user anonymous preset: enables ephemeral workspace, disables data connectors, "
              "disables custom LLM endpoints, and hides API keys. Equivalent to setting "
              "--workspace-backend=ephemeral --disable-data-connectors --disable-custom-models --disable-display-keys.")
-    parser.add_argument("--disable-data-connectors", action='store_true', default=False,
+    parser.add_argument("--disable-data-connectors", action='store_true',
+        default=app.config['CLI_ARGS'].get('disable_data_connectors', False),
         help="Disable external data connectors (MySQL, PostgreSQL, etc.). "
              "Recommended for multi-user anonymous deployments to prevent credential exposure.")
-    parser.add_argument("--disable-custom-models", action='store_true', default=False,
+    parser.add_argument("--disable-custom-models", action='store_true',
+        default=app.config['CLI_ARGS'].get('disable_custom_models', False),
         help="Prevent users from adding custom LLM endpoints via the UI. "
              "Only server-configured models will be available.")
-    parser.add_argument("--project-front-page", action='store_true', default=False,
+    parser.add_argument("--project-front-page", action='store_true',
+        default=app.config['CLI_ARGS'].get('project_front_page', False),
         help="Project the front page as the main page instead of the app.")
     parser.add_argument("--max-display-rows", type=int,
         default=int(os.environ.get('MAX_DISPLAY_ROWS', '10000')),
         help="Maximum number of rows to send to the frontend for display (default: 10000)")
     parser.add_argument("--data-dir", type=str, default=None,
         help="Data Formulator home directory for workspaces and sessions (default: ~/.data_formulator)")
-    parser.add_argument("--dev", action='store_true', default=False,
+    parser.add_argument("--dev", action='store_true',
+        default=app.config['CLI_ARGS'].get('dev', False),
         help="Launch the app in development mode (prevents the app from opening the browser automatically)")
     parser.add_argument("--workspace-backend", type=str,
         default=os.environ.get('WORKSPACE_BACKEND', 'local'),

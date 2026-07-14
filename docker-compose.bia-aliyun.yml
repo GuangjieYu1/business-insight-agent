@@ -17,6 +17,10 @@ services:
       DISABLE_DATA_CONNECTORS: ${DISABLE_DATA_CONNECTORS:-true}
       DISABLE_CUSTOM_MODELS: ${DISABLE_CUSTOM_MODELS:-true}
       FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?FLASK_SECRET_KEY must be set in .env}
+    command:
+      - --disable-display-keys
+      - --disable-data-connectors
+      - --disable-custom-models
     ports:
       - "127.0.0.1:5568:5567"
     volumes:
