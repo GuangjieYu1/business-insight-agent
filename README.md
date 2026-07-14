@@ -54,6 +54,13 @@ uv run data_formulator --dev --product-mode business_insight
 yarn start
 ```
 
+Aliyun same-host deployment assets for the `business_insight` product mode are included at:
+
+- [`docker-compose.bia-aliyun.yml`](./docker-compose.bia-aliyun.yml)
+- [`deploy/aliyun/.env.business_insight.template`](./deploy/aliyun/.env.business_insight.template)
+- [`deploy/nginx/business-insight-agent-coexist.conf.template`](./deploy/nginx/business-insight-agent-coexist.conf.template)
+- [`docs/deployment/ALIYUN_COEXIST_DEPLOYMENT.md`](./docs/deployment/ALIYUN_COEXIST_DEPLOYMENT.md)
+
 For a production bundle, run `yarn build` and then start the backend with `uv run data_formulator --product-mode business_insight`.
 
 Data safety boundaries: uploaded files remain inside the active Data Formulator workspace; Business Insight data is stored under workspace-scoped Insight storage; canonical changes go through deterministic operation handlers; sensitive and high-cardinality values are redacted from persisted profile samples; API keys must not be written into workspaces.

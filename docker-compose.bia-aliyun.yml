@@ -1,0 +1,34 @@
+services:
+  business-insight-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: business-insight-agent:${BIA_IMAGE_TAG:-local}
+    container_name: business-insight-agent
+    init: true
+    env_file:
+      - ${BIA_ENV_FILE:-.env}
+    environment:
+      APP_PRODUCT_MODE: ${APP_PRODUCT_MODE:-business_insight}
+      SANDBOX: ${SANDBOX:-local}
+      WORKSPACE_BACKEND: ${WORKSPACE_BACKEND:-local}
+      DATA_FORMULATOR_HOME: ${DATA_FORMULATOR_HOME:-/srv/business-insight-agent/data}
+      DISABLE_DISPLAY_KEYS: ${DISABLE_DISPLAY_KEYS:-true}
+      DISABLE_DATA_CONNECTORS: ${DISABLE_DATA_CONNECTORS:-true}
+      DISABLE_CUSTOM_MODELS: ${DISABLE_CUSTOM_MODELS:-true}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?FLASK_SECRET_KEY must be set in .env}
+    ports:
+      - "127.0.0.1:5568:5567"
+    volumes:
+      - type: bind
+        source: ${BIA_HOST_DATA_DIR:-/srv/business-insight-agent/data}
+        target: ${DATA_FORMULATOR_HOME:-/srv/business-insight-agent/data}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:5567/api/insight/health >/dev/null || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped

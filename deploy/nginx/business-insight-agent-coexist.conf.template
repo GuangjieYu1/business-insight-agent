@@ -1,0 +1,84 @@
+# Replace the placeholders below before enabling this site:
+#   __PRIMARY_DOMAIN__   -> existing public domain, for example app.example.com
+#   __BI_DOMAIN__        -> Business Insight domain, for example bi.example.com
+#   __SSL_FULLCHAIN__    -> certificate fullchain path
+#   __SSL_KEY__          -> certificate private-key path
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+upstream legacy_service_upstream {
+    server 127.0.0.1:8080;
+    keepalive 32;
+}
+
+upstream business_insight_upstream {
+    server 127.0.0.1:5568;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __PRIMARY_DOMAIN__ __BI_DOMAIN__;
+
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name __PRIMARY_DOMAIN__;
+
+    ssl_certificate __SSL_FULLCHAIN__;
+    ssl_certificate_key __SSL_KEY__;
+
+    client_max_body_size 100m;
+
+    location / {
+        proxy_pass http://legacy_service_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_request_buffering off;
+        proxy_buffering off;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name __BI_DOMAIN__;
+
+    ssl_certificate __SSL_FULLCHAIN__;
+    ssl_certificate_key __SSL_KEY__;
+
+    client_max_body_size 100m;
+
+    location / {
+        proxy_pass http://business_insight_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_request_buffering off;
+        proxy_buffering off;
+    }
+}
