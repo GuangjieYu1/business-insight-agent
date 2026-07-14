@@ -60,6 +60,7 @@ Aliyun same-host deployment assets for the `business_insight` product mode are i
 - [`deploy/aliyun/.env.business_insight.template`](./deploy/aliyun/.env.business_insight.template)
 - [`deploy/nginx/business-insight-agent-coexist.conf.template`](./deploy/nginx/business-insight-agent-coexist.conf.template)
 - [`docs/deployment/ALIYUN_COEXIST_DEPLOYMENT.md`](./docs/deployment/ALIYUN_COEXIST_DEPLOYMENT.md)
+- [`docs/deployment/ALIYUN_PUBLIC_8081_IMAGE_DEPLOYMENT.md`](./docs/deployment/ALIYUN_PUBLIC_8081_IMAGE_DEPLOYMENT.md)
 
 For a production bundle, run `yarn build` and then start the backend with `uv run data_formulator --product-mode business_insight`.
 

@@ -2,6 +2,8 @@
 
 This runbook deploys Business Insight Agent on the same ECS host as an existing public service without letting the two applications compete for ports `80` and `443`.
 
+> Verified current deployment: this host currently exposes Business Insight Agent through public HTTP port `8081` with a prebuilt GitHub Actions Docker image. See [ALIYUN_PUBLIC_8081_IMAGE_DEPLOYMENT.md](./ALIYUN_PUBLIC_8081_IMAGE_DEPLOYMENT.md) for the runbook that matches the live configuration.
+
 ## Goal
 
 Target host:
