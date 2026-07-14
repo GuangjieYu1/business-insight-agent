@@ -138,3 +138,9 @@ def test_app_config_exposes_bia_deepseek_user_key_mode() -> None:
     assert data["BIA_USER_DEEPSEEK_KEYS_ENABLED"] is True
     assert data["BIA_USER_DEEPSEEK_API_BASE"] == "https://api.deepseek.com/v1"
     assert data["BIA_USER_DEEPSEEK_MODELS"] == ["deepseek-v4-flash", "deepseek-v4-pro"]
+
+def test_litellm_runtime_proxy_dependency_is_packaged() -> None:
+    """LiteLLM imports proxy helpers during completion calls in current releases."""
+    import fastapi  # noqa: F401
+    import orjson  # noqa: F401
+    import litellm.responses.mcp.chat_completions_handler  # noqa: F401

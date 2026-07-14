@@ -28,6 +28,8 @@ dependencies = [
     "openai",
     "python-dotenv",
     "litellm",
+    "fastapi",                  # litellm imports proxy helpers at runtime
+    "orjson",                   # litellm runtime proxy helper dependency
     "duckdb",
     "numpy",
     "vl-convert-python",
