@@ -82,6 +82,9 @@ export interface ServerConfig {
     LITELLM_TELEMETRY_DISABLED: boolean;
     BIA_AZURE_WORKSPACE_BLOCKED: boolean;
     BIA_ONLINE_CHARTIFACT_BLOCKED: boolean;
+    BIA_USER_DEEPSEEK_KEYS_ENABLED: boolean;
+    BIA_USER_DEEPSEEK_API_BASE: string;
+    BIA_USER_DEEPSEEK_MODELS: string[];
     REMOTE_ANALYSIS_SERVICES: Array<{
         service_id: string;
         display_name: string;
@@ -311,6 +314,9 @@ const initialState: DataFormulatorState = {
         LITELLM_TELEMETRY_DISABLED: true,
         BIA_AZURE_WORKSPACE_BLOCKED: false,
         BIA_ONLINE_CHARTIFACT_BLOCKED: false,
+        BIA_USER_DEEPSEEK_KEYS_ENABLED: false,
+        BIA_USER_DEEPSEEK_API_BASE: 'https://api.deepseek.com/v1',
+        BIA_USER_DEEPSEEK_MODELS: ['deepseek-v4-flash', 'deepseek-v4-pro'],
         REMOTE_ANALYSIS_SERVICES: [],
     },
 

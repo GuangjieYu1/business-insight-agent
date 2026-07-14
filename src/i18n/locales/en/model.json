@@ -31,8 +31,8 @@
     "modelPlaceholder": "e.g., gpt-5.4",
     "enterModelName": "Enter a model name",
     "optional": "optional",
-    "providerModelExists": "provider + model already exists",
-    "addAndTestModel": "add and test model",
+    "providerModelExists": "This model configuration already exists",
+    "addAndTestModel": "Add and test model",
     "clear": "clear",
     "modelReadyMessage": "Model is ready to use",
     "clickToTestModel": "Click to test if this model is working",
@@ -52,8 +52,14 @@
     "serverManagedSection": "Server configured models",
     "serverManagedReadonly": "Read-only",
     "userManagedSection": "My models",
-    "testing": "Testing…",
+    "testing": "Testing...",
     "configured": "Configured",
-    "configuredMessage": "Server configured, click to verify connectivity"
+    "configuredMessage": "Server configured, click to verify connectivity",
+    "deepSeekRestrictedTip": "Only your DeepSeek API key is editable. Provider, API base, API version, and model choices are controlled by the administrator.",
+    "deepSeekLocalStorageTip": "The API key is stored only in this browser and is not written to the server workspace.",
+    "deepSeekApiKeyPlaceholder": "Enter DeepSeek API Key",
+    "deepSeekProviderValue": "DeepSeek (OpenAI-compatible)",
+    "deepSeekModelAria": "Select DeepSeek model",
+    "notApplicable": "N/A"
   }
 }

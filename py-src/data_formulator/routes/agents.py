@@ -185,6 +185,12 @@ def get_client(model_config):
     # Validate user-provided api_base against the allowlist (SSRF protection).
     # Global models are trusted (their api_base comes from server env vars).
     if not model_config.get("is_global"):
+        args = current_app.config.get('CLI_ARGS', {})
+        from data_formulator.insight.deepseek_user_models import validate_bia_user_model_config
+        validate_bia_user_model_config(
+            model_config,
+            product_mode=args.get('product_mode'),
+        )
         from data_formulator.security.url_allowlist import validate_api_base
         validate_api_base(model_config.get("api_base"))
 
