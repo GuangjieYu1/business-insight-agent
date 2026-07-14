@@ -10,7 +10,7 @@ WORKDIR /app
 
 # Install dependencies
 COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile
+RUN yarn install --pure-lockfile --non-interactive
 
 # Copy source and build
 COPY index.html tsconfig.json vite.config.ts eslint.config.js ./
