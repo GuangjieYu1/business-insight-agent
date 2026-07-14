@@ -22,25 +22,27 @@ jobs:
   build-image:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      IMAGE_TAG: ${{ github.event.inputs.image_tag || 'local' }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Build image
         run: |
           docker build \
-            --tag "business-insight-agent:${{ inputs.image_tag }}" \
+            --tag "business-insight-agent:${IMAGE_TAG}" \
             --file Dockerfile \
             .
 
       - name: Save image archive
         run: |
           mkdir -p image-artifact
-          docker save "business-insight-agent:${{ inputs.image_tag }}" \
-            | gzip -1 > "image-artifact/business-insight-agent-${{ inputs.image_tag }}-${{ github.sha }}.tar.gz"
+          docker save "business-insight-agent:${IMAGE_TAG}" \
+            | gzip -1 > "image-artifact/business-insight-agent-${IMAGE_TAG}-${{ github.sha }}.tar.gz"
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: business-insight-agent-image-${{ inputs.image_tag }}-${{ github.sha }}
+          name: business-insight-agent-image-${{ env.IMAGE_TAG }}-${{ github.sha }}
           path: image-artifact/*.tar.gz
           retention-days: 3
