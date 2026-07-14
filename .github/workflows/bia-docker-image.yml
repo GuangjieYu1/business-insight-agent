@@ -1,0 +1,39 @@
+name: Build BIA Docker image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Docker image tag to build and save
+        required: false
+        default: local
+
+permissions:
+  contents: read
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          docker build \
+            --tag "business-insight-agent:${{ inputs.image_tag }}" \
+            --file Dockerfile \
+            .
+
+      - name: Save image archive
+        run: |
+          mkdir -p image-artifact
+          docker save "business-insight-agent:${{ inputs.image_tag }}" \
+            | gzip -1 > "image-artifact/business-insight-agent-${{ inputs.image_tag }}-${{ github.sha }}.tar.gz"
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: business-insight-agent-image-${{ inputs.image_tag }}-${{ github.sha }}
+          path: image-artifact/*.tar.gz
+          retention-days: 3
