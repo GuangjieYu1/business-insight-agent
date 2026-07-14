@@ -8,6 +8,13 @@ on:
         required: false
         default: local
 
+  push:
+    branches:
+      - develop
+    paths:
+      - Dockerfile
+      - docker-compose.bia-aliyun.yml
+      - .github/workflows/bia-docker-image.yml
 permissions:
   contents: read
 
