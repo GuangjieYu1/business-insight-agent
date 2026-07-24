@@ -904,11 +904,11 @@ let SingleThreadGroupView: FC<{
         const ids = new Map<string, { question: string }>();
         for (const d of draftNodes) {
             if (d.derive?.status === 'clarifying') {
-                // The pause entry is one of clarify / explain /
-                // delegate; all three shape the timeline the
+                // The pause entry is one of clarify / approval /
+                // explain / delegate; all four shape the timeline the
                 // same way (an attention row above the input box).
                 const pauseEntry = d.derive.trigger.interaction
-                    ?.filter(e => e.role === 'clarify' || e.role === 'explain' || e.role === 'delegate').pop();
+                    ?.filter(e => e.role === 'clarify' || e.role === 'approval' || e.role === 'explain' || e.role === 'delegate').pop();
                 ids.set(d.derive.trigger.tableId, { question: pauseEntry?.content || '' });
             }
         }
@@ -1259,12 +1259,13 @@ let SingleThreadGroupView: FC<{
                 : entry;
 
             // ── Resolved Q&A folding ──
-            // When a clarify/explain/delegate has been resolved
+            // When a clarify/approval/explain/delegate has been resolved
             // by a following user reply, fold the pair into a single
             // compact "conversation" timeline item. Consecutive resolved
             // pairs are accumulated into ONE item so a back-and-forth of
             // multiple rounds collapses to one trace.
             const isPauseRole = entry.role === 'clarify'
+                || entry.role === 'approval'
                 || entry.role === 'explain'
                 || entry.role === 'delegate';
             if (isPauseRole && entry.from !== 'user') {
@@ -1272,7 +1273,7 @@ let SingleThreadGroupView: FC<{
                 let cursor = ei;
                 while (cursor < entries.length) {
                     const ag = entries[cursor];
-                    const agIsPause = ag.role === 'clarify' || ag.role === 'explain' || ag.role === 'delegate';
+                    const agIsPause = ag.role === 'clarify' || ag.role === 'approval' || ag.role === 'explain' || ag.role === 'delegate';
                     if (!agIsPause || ag.from === 'user') break;
                     // Find the next user entry to pair with this agent question.
                     let userIdx = -1;
@@ -1282,7 +1283,7 @@ let SingleThreadGroupView: FC<{
                         // an intervening user reply — that pause is still
                         // unresolved and shouldn't fold.
                         const r = entries[j].role;
-                        if (r === 'clarify' || r === 'explain' || r === 'delegate') break;
+                        if (r === 'clarify' || r === 'approval' || r === 'explain' || r === 'delegate') break;
                     }
                     if (userIdx < 0) break;
                     pairs.push({ agentEntry: ag, userEntry: entries[userIdx] });
@@ -1308,7 +1309,7 @@ let SingleThreadGroupView: FC<{
                 }
             }
 
-            const isResolved = (entry.role === 'clarify' || entry.role === 'explain' || entry.role === 'delegate')
+            const isResolved = (entry.role === 'clarify' || entry.role === 'approval' || entry.role === 'explain' || entry.role === 'delegate')
                 && entries.slice(ei + 1).some(e => e.from === 'user');
             timelineItems.push({
                 key: `${keyPrefix}-${entry.role}-${tableId}-${ei}`,
@@ -1413,7 +1414,7 @@ let SingleThreadGroupView: FC<{
                 }
                 return interaction[0]?.timestamp;
             })();
-            const pauseIdx = interaction.findIndex(e => e.role === 'clarify' || e.role === 'explain' || e.role === 'delegate');
+            const pauseIdx = interaction.findIndex(e => e.role === 'clarify' || e.role === 'approval' || e.role === 'explain' || e.role === 'delegate');
             if (pauseIdx < 0) {
                 // No pause — render all entries then ThinkingStepsBanner
                 pushInteractionEntries(interaction, tableId, triggerType, highlighted, keyPrefix);
@@ -1508,7 +1509,7 @@ let SingleThreadGroupView: FC<{
                     'agent-clarify-entry',
                 );
                 const lastItem = timelineItems[timelineItems.length - 1];
-                if (lastItem?.interactionEntry?.role === 'clarify' || lastItem?.interactionEntry?.role === 'explain' || lastItem?.interactionEntry?.role === 'delegate') {
+                if (lastItem?.interactionEntry?.role === 'clarify' || lastItem?.interactionEntry?.role === 'approval' || lastItem?.interactionEntry?.role === 'explain' || lastItem?.interactionEntry?.role === 'delegate') {
                     lastItem.isClarifying = true;
                 }
             } else {
@@ -1766,9 +1767,9 @@ let SingleThreadGroupView: FC<{
         backgroundPosition: 'top center',
     } as const;
 
-    // Gutter icon for clarify/explain pause entries.
-    // Both share the SmartToy bouncing pulse to call attention; only the
-    // color differs (clarify = warning, explain = info) so they match the
+    // Gutter icon for clarify/approval/explain pause entries.
+    // All share the SmartToy bouncing pulse to call attention; only the
+    // color differs (clarify/approval = warning, explain = info) so they match the
     // entry card's palette.
     const getClarifyIcon = (item: typeof timelineItems[0]) => {
         const role = item.interactionEntry?.role;
@@ -3486,4 +3487,3 @@ export const DataThread: FC<{sx?: SxProps}> = function ({ sx }) {
         </Box>
     );
 }
-

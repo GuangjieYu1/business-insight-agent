@@ -98,6 +98,45 @@ def test_ledger_resumes_same_run_and_never_copies_event_bodies(tmp_path):
     assert 'tool_name' in persisted_steps
 
 
+def test_ledger_resumes_waiting_approval_run_with_same_token(tmp_path):
+    store = LocalInsightStore(tmp_path / 'workspace')
+    approval_id = 'approval_runtime_xgboost'
+    ledger = DataAgentRunLedger.start_or_resume(
+        store,
+        workspace_id='workspace_001',
+        input_tables=[{'name': 'sales', 'rows': []}],
+        user_question='Can you use XGBoost?',
+        resume_trajectory=None,
+    )
+    first_run_id = ledger.run.id
+
+    ledger.observe(
+        {
+            'type': 'approval_required',
+            'approval': {'id': approval_id},
+            'packages': ['xgboost'],
+        }
+    )
+
+    waiting = RunStore(store, workspace_id='workspace_001').require(first_run_id)
+    assert waiting.status == 'waiting_approval'
+    assert waiting.resume_cursor_hash
+
+    resumed = DataAgentRunLedger.start_or_resume(
+        store,
+        workspace_id='workspace_001',
+        input_tables=[{'name': 'sales', 'rows': []}],
+        user_question='Continue',
+        resume_trajectory=None,
+        resume_token=approval_id,
+    )
+
+    assert resumed.run.id == first_run_id
+    assert resumed.run.status == 'analyzing'
+    steps = RunStore(store, workspace_id='workspace_001').list_steps(first_run_id)
+    assert steps[-1].detail.get('resume_stage') == 'waiting_approval'
+
+
 def test_recovery_marks_only_orphaned_ledger_runs_interrupted(tmp_path):
     store = LocalInsightStore(tmp_path / 'workspace')
     run_store = RunStore(store, workspace_id='workspace_001')

@@ -2,7 +2,7 @@ import React from 'react';
 import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { ClarificationPanel } from '../../../../src/views/AgentPausePanel';
+import { ApprovalPanel, ClarificationPanel } from '../../../../src/views/AgentPausePanel';
 
 vi.mock('react-i18next', () => ({
   // The panel now lives in `AgentPausePanel.tsx` which transitively pulls
@@ -17,6 +17,14 @@ vi.mock('react-i18next', () => ({
         'chartRec.optionalClarification': '(optional)',
         'chartRec.freeTextClarificationPlaceholder': 'Type your answer...',
         'chartRec.freeTextClarificationHint': 'Type your answer in the chat box below.',
+        'chartRec.approvalTitle': 'Approve package install',
+        'chartRec.approvalReject': 'Reject',
+        'chartRec.approvalMinimize': 'Minimize approval',
+        'chartRec.approvalExpand': 'Expand approval',
+        'chartRec.approvalDomesticBody': `Install ${params?.packages} from domestic mirrors?`,
+        'chartRec.approvalSourceOrder': `Sources: ${params?.sources}`,
+        'chartRec.approvalUnknownPackage': 'unknown package',
+        'chartRec.approvalApproveDomestic': 'Approve domestic install',
       };
       return labels[key] || key;
     },
@@ -99,5 +107,36 @@ describe('ClarificationPanel', () => {
     expect(screen.getByText('Type your answer in the chat box below.')).toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Type your answer...')).toBeNull();
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('renders package approval details and wires approve/reject actions', () => {
+    const onApprove = vi.fn();
+    const onReject = vi.fn();
+
+    render(
+      <ApprovalPanel
+        approval={{
+          id: 'approval_123',
+          kind: 'python_package_install',
+          packages: ['xgboost', 'shap'],
+          modules: ['xgboost', 'shap'],
+          sources: [
+            { id: 'primary', label: 'Aliyun HTTPS', url: 'https://mirrors.aliyun.com/pypi/simple/' },
+            { id: 'secondary', label: 'Tsinghua TUNA', url: 'https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple' },
+          ],
+        }}
+        onApprove={onApprove}
+        onReject={onReject}
+      />,
+    );
+
+    expect(screen.getByText('Install xgboost, shap from domestic mirrors?')).toBeInTheDocument();
+    expect(screen.getByText('Sources: Aliyun HTTPS → Tsinghua TUNA')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve domestic install' }));
+    expect(onApprove).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reject' })[0]);
+    expect(onReject).toHaveBeenCalledTimes(1);
   });
 });

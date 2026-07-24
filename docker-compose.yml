@@ -13,6 +13,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        DF_BUILD_PIP_INDEX_URL: ${DF_BUILD_PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
     image: data-formulator:latest
     ports:
       - "5567:5567"

@@ -13,6 +13,8 @@
  *    (rendered by `ClarificationPanel` with `variant="explain"`)
  *  - `DelegatePanel`      — agent recommends handing off to a peer
  *                           agent (Data Loading or Report Gen).
+ *  - `ApprovalPanel`      — agent needs permission to install missing
+ *                           Python packages before continuing.
  *
  * Keeping them in one file makes shared styling/layout tweaks (header
  * spacing, palette use, collapse animation) trivial to maintain.
@@ -36,6 +38,7 @@ import {
     ClarificationQuestion,
     ClarificationResponse,
     DelegateTarget,
+    PendingRuntimeApproval,
 } from '../components/ComponentType';
 import { renderFieldHighlights } from './InteractionEntryCard';
 
@@ -539,6 +542,136 @@ export const DelegatePanel: FC<DelegatePanelProps> = ({
                             </Box>
                         ))}
                     </Box>
+                </Box>
+            </Box>
+        </AgentPauseShell>
+    );
+};
+
+// ---------------------------------------------------------------------------
+// ApprovalPanel
+// ---------------------------------------------------------------------------
+
+interface ApprovalPanelProps {
+    approval: PendingRuntimeApproval;
+    onApprove: () => void;
+    onReject: () => void;
+}
+
+export const ApprovalPanel: FC<ApprovalPanelProps> = ({
+    approval,
+    onApprove,
+    onReject,
+}) => {
+    const theme = useTheme();
+    const { t } = useTranslation();
+    const packageList = (approval.packages || []).filter(Boolean).join(', ');
+    const sourceSummary = (approval.sources || [])
+        .map(source => source.label || source.url)
+        .filter(Boolean)
+        .join(' → ');
+
+    return (
+        <AgentPauseShell
+            icon={<AgentToyIcon
+                variant="clarify"
+                sx={{ fontSize: 16, color: theme.palette.warning.main }}
+            />}
+            accentColor={theme.palette.warning.main}
+            title={t('chartRec.approvalTitle')}
+            minimizedPreview={packageList}
+            dismissTooltip={t('chartRec.approvalReject')}
+            minimizeTooltip={t('chartRec.approvalMinimize')}
+            expandTooltip={t('chartRec.approvalExpand')}
+            onCancel={onReject}
+            resetKey={`${approval.kind}|${approval.id}|${packageList}`}
+        >
+            <Box sx={{
+                display: 'flex', flexDirection: 'column',
+                gap: '8px', pb: '8px', pl: '20px', pr: '4px',
+            }}>
+                <Typography component="div" sx={{
+                    fontSize: 12,
+                    color: theme.palette.text.primary,
+                    lineHeight: 1.5,
+                }}>
+                    {t(
+                        approval.kind === 'official_pypi_fallback'
+                            ? 'chartRec.approvalOfficialBody'
+                            : 'chartRec.approvalDomesticBody',
+                        { packages: packageList || t('chartRec.approvalUnknownPackage') },
+                    )}
+                </Typography>
+
+                {sourceSummary && (
+                    <Typography sx={{
+                        fontSize: 10,
+                        color: theme.palette.text.secondary,
+                        lineHeight: 1.5,
+                    }}>
+                        {t('chartRec.approvalSourceOrder', { sources: sourceSummary })}
+                    </Typography>
+                )}
+
+                {!!approval.errorMessage && (
+                    <Typography sx={{
+                        fontSize: 10,
+                        color: theme.palette.text.secondary,
+                        lineHeight: 1.5,
+                    }}>
+                        {approval.errorMessage}
+                    </Typography>
+                )}
+
+                <Box sx={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <Typography
+                        component="button"
+                        type="button"
+                        onClick={onApprove}
+                        sx={{
+                            px: '10px',
+                            py: '6px',
+                            borderRadius: '6px',
+                            border: `1px solid ${alpha(theme.palette.warning.main, 0.32)}`,
+                            backgroundColor: alpha(theme.palette.warning.main, 0.10),
+                            cursor: 'pointer',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: theme.palette.text.primary,
+                            fontFamily: theme.typography.fontFamily,
+                            '&:hover': {
+                                backgroundColor: alpha(theme.palette.warning.main, 0.16),
+                            },
+                        }}
+                    >
+                        {t(
+                            approval.kind === 'official_pypi_fallback'
+                                ? 'chartRec.approvalApproveOfficial'
+                                : 'chartRec.approvalApproveDomestic',
+                        )}
+                    </Typography>
+                    <Typography
+                        component="button"
+                        type="button"
+                        onClick={onReject}
+                        sx={{
+                            px: '10px',
+                            py: '6px',
+                            borderRadius: '6px',
+                            border: `1px solid ${alpha(theme.palette.text.primary, 0.12)}`,
+                            backgroundColor: theme.palette.background.paper,
+                            cursor: 'pointer',
+                            fontSize: 11,
+                            fontWeight: 500,
+                            color: theme.palette.text.primary,
+                            fontFamily: theme.typography.fontFamily,
+                            '&:hover': {
+                                backgroundColor: alpha(theme.palette.text.primary, 0.04),
+                            },
+                        }}
+                    >
+                        {t('chartRec.approvalReject')}
+                    </Typography>
                 </Box>
             </Box>
         </AgentPauseShell>

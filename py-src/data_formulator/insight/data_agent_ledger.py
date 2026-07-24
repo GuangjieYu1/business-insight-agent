@@ -38,6 +38,18 @@ def trajectory_hash(value: Any) -> str:
     return hashlib.sha256(serialized.encode('utf-8')).hexdigest()
 
 
+def _resume_cursor_hash(
+    *,
+    resume_trajectory: list[dict[str, Any]] | None,
+    resume_token: str | None,
+) -> str | None:
+    if resume_trajectory is not None:
+        return trajectory_hash(resume_trajectory)
+    if isinstance(resume_token, str) and resume_token.strip():
+        return trajectory_hash({'resume_token': resume_token.strip()})
+    return None
+
+
 def _question_title(question: str, *, limit: int = 120) -> str:
     normalized = ' '.join(str(question or '').split())
     if len(normalized) <= limit:
@@ -166,20 +178,29 @@ class DataAgentRunLedger:
         input_tables: list[dict[str, Any]],
         user_question: str,
         resume_trajectory: list[dict[str, Any]] | None,
+        resume_token: str | None = None,
     ) -> 'DataAgentRunLedger':
         recover_interrupted_data_agent_runs(store, workspace_id=workspace_id)
         run_store = RunStore(store, workspace_id=workspace_id)
 
-        if resume_trajectory is not None:
-            cursor_hash = trajectory_hash(resume_trajectory)
+        cursor_hash = _resume_cursor_hash(
+            resume_trajectory=resume_trajectory,
+            resume_token=resume_token,
+        )
+        if cursor_hash is not None:
             for existing in reversed(run_store.list()):
                 if (
                     existing.execution_kind == DATA_AGENT_LEDGER_KIND
-                    and existing.status == 'waiting_user_input'
+                    and existing.status in {'waiting_user_input', 'waiting_approval'}
                     and existing.resume_cursor_hash == cursor_hash
                 ):
                     now = utc_now()
                     _mark_active(existing.id)
+                    resume_stage = (
+                        'waiting_approval'
+                        if existing.status == 'waiting_approval'
+                        else 'waiting_user_input'
+                    )
                     resumed = existing.model_copy(
                         update={
                             'status': 'analyzing',
@@ -200,10 +221,15 @@ class DataAgentRunLedger:
                                 status='completed',
                                 started_at=now,
                                 completed_at=now,
-                                progress_text='The existing Data Agent task resumed after user input.',
+                                progress_text=(
+                                    'The existing Data Agent task resumed after package approval.'
+                                    if resume_stage == 'waiting_approval'
+                                    else 'The existing Data Agent task resumed after user input.'
+                                ),
                                 detail={
                                     'event_type': 'step_completed',
                                     'stage': 'analyzing',
+                                    'resume_stage': resume_stage,
                                 },
                             )
                         )
@@ -399,7 +425,10 @@ class DataAgentRunLedger:
 
         if event_type in {'clarify', 'explain'}:
             trajectory = event.get('trajectory')
-            cursor_hash = trajectory_hash(trajectory) if isinstance(trajectory, list) else None
+            cursor_hash = _resume_cursor_hash(
+                resume_trajectory=trajectory if isinstance(trajectory, list) else None,
+                resume_token=None,
+            )
             now = utc_now()
             self._transition(
                 'waiting_user_input',
@@ -417,6 +446,38 @@ class DataAgentRunLedger:
                     'event_type': 'user_input_required',
                     'stage': 'waiting_user_input',
                     'interaction_type': event_type,
+                },
+            )
+            self._close()
+            return
+
+        if event_type == 'approval_required':
+            approval = event.get('approval')
+            approval_id = (
+                approval.get('id')
+                if isinstance(approval, dict)
+                else None
+            )
+            cursor_hash = _resume_cursor_hash(
+                resume_trajectory=None,
+                resume_token=approval_id if isinstance(approval_id, str) else None,
+            )
+            now = utc_now()
+            self._transition(
+                'waiting_approval',
+                stage='waiting_approval',
+                resume_cursor_hash=cursor_hash,
+            )
+            self._append_step(
+                step_type='observation',
+                title='Data Agent is waiting for approval',
+                status='completed',
+                progress_text='The task is paused until the user approves or rejects runtime package installation.',
+                started_at=now,
+                completed_at=now,
+                detail={
+                    'event_type': 'approval_required',
+                    'stage': 'waiting_approval',
                 },
             )
             self._close()

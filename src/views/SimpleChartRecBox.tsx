@@ -27,7 +27,7 @@ import { AppDispatch } from '../app/store';
 import { resolveRecommendedChart, getUrls, getTriggers, translateBackend } from '../app/utils';
 import { streamRequest } from '../app/apiClient';
 import { getErrorMessage } from '../app/errorCodes';
-import { Chart, ClarificationResponse, DictTable, FieldItem, createDictTable, InteractionEntry } from "../components/ComponentType";
+import { Chart, ClarificationResponse, DictTable, FieldItem, PendingRuntimeApproval, createDictTable, InteractionEntry } from "../components/ComponentType";
 import { normalizeClarifyEvent, formatClarificationResponses } from '../app/clarification';
 
 import { alpha } from '@mui/material/styles';
@@ -45,7 +45,7 @@ import { transition } from '../app/tokens';
 import { Theme } from '@mui/material/styles';
 import { useTranslation } from 'react-i18next';
 import { shouldAutoFocusGeneratedChart } from '../app/agentInteractionPolicy';
-import { ClarificationPanel, DelegatePanel } from './AgentPausePanel';
+import { ApprovalPanel, ClarificationPanel, DelegatePanel } from './AgentPausePanel';
 
 const AgentWorkingOverlay: FC<{ message?: string; elapsed?: number; theme: Theme; onCancel?: () => void; color?: 'primary' | 'warning' }> = ({ message, elapsed, theme, onCancel, color = 'primary' }) => {
     const { t } = useTranslation();
@@ -334,13 +334,18 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
         return null;
     }, [draftNodes, threadTableIds]);
 
-    // Extract the active structured clarification (or explanation) from
-    // DraftNode interaction log. Both are stored as ClarificationQuestion[]
-    // — the entry's role ('clarify' vs 'explain') is what differs.
-    // `delegate` pauses share the same slot but render a different panel
-    // (a one-click handoff to the target peer agent).
+    // Extract the active pause payload from DraftNode state/interaction.
+    // Clarify and explain pauses share the question structure, delegate
+    // pauses render a handoff card, and approval pauses render approve /
+    // reject actions for runtime package installation.
     const clarificationQuestions = React.useMemo(() => {
         if (!pendingClarification?.draftId) return null;
+        if (pendingClarification.approval) {
+            return {
+                kind: 'approval' as const,
+                approval: pendingClarification.approval,
+            };
+        }
         const draft = draftNodes.find(d => d.id === pendingClarification.draftId);
         const interaction = draft?.derive?.trigger?.interaction || [];
         // Find the most recent pause entry (clarify / explain / delegate).
@@ -370,7 +375,8 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
         completedStepCount: number;
         actionId: string;
         lastCreatedTableId: string | null;
-    }, displayPrompt?: string) => {
+        approval?: PendingRuntimeApproval | null;
+    }, displayPrompt?: string, approvalDecision?: 'approve' | 'reject') => {
         if (!focusedTableId || (!clarificationContext && prompt.trim() === "")) return;
 
         const rootTables = tables.filter(t => t.derive === undefined || t.anchored);
@@ -398,10 +404,9 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
 
         setIsChatFormulating(true);
 
-        // DraftNode handles status
-        // If resuming from a clarify or explain pause, reuse the old draft
-        // (append reply, clear pause state). Both pause types share the
-        // 'clarifying' status and pendingClarification storage.
+        // DraftNode handles status.
+        // If resuming from a pause, reuse the old draft (append the user's
+        // reply / decision, clear pause state, switch back to running).
         if (isResume && pendingClarification?.draftId) {
             dispatch(dfActions.appendDraftInteraction({ draftId: pendingClarification.draftId, entry: {
                 from: 'user', to: 'data-agent', role: 'prompt', content: prompt,
@@ -548,12 +553,20 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
         };
 
         if (isResume) {
-            // Resume: just send the assembled prompt as user_question. The
-            // backend appends it to the trajectory as a normal user message.
-            // No special clarification payload needed.
-            requestBody.trajectory = clarificationContext!.trajectory;
-            requestBody.user_question = prompt;
-            requestBody.completed_step_count = clarificationContext!.completedStepCount;
+            if (approvalDecision && clarificationContext?.approval) {
+                requestBody.approval = {
+                    id: clarificationContext.approval.id,
+                    decision: approvalDecision,
+                };
+                requestBody.user_question = prompt;
+            } else {
+                // Resume: just send the assembled prompt as user_question.
+                // The backend appends it to the trajectory as a normal user
+                // message.
+                requestBody.trajectory = clarificationContext!.trajectory;
+                requestBody.user_question = prompt;
+                requestBody.completed_step_count = clarificationContext!.completedStepCount;
+            }
         } else {
             requestBody.user_question = prompt;
             if (focusedThread) requestBody.focused_thread = focusedThread;
@@ -703,20 +716,110 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
 
             // ── tool_result: mark the last tool step as done ──
             if (result.type === "tool_result") {
-                const isError = result.status === "error" || !!result.error;
+                const isApprovalPause = result.status === "approval_required";
+                const isError = !isApprovalPause && (result.status === "error" || !!result.error);
                 for (let i = thinkingSteps.length - 1; i >= 0; i--) {
                     if (!thinkingSteps[i].startsWith('✓') && !thinkingSteps[i].startsWith('✗')) {
-                        thinkingSteps[i] = (isError ? '✗ ' : '✓ ') + thinkingSteps[i];
+                        thinkingSteps[i] = (isError ? '✗ ' : isApprovalPause ? '⚠ ' : '✓ ') + thinkingSteps[i];
                         break;
                     }
                 }
                 if (isError && result.error) {
                     const errPreview = String(result.error).split('\n').pop()?.trim() || String(result.error).slice(0, 120);
                     thinkingSteps.push('⚠ ' + errPreview);
+                } else if (isApprovalPause && result.error) {
+                    thinkingSteps.push('⚠ ' + String(result.error));
                 }
                 if (currentDraftId) {
                     dispatch(dfActions.updateDraftRunningPlan({ draftId: currentDraftId, plan: thinkingSteps.join(STEP_SEP) }));
                 }
+            }
+
+            if (result.type === "approval_status") {
+                const packages = Array.isArray(result.packages) ? result.packages.join(', ') : '';
+                const sourceLabel = result.source?.label || '';
+                let statusText = '';
+                if (result.status === 'installing') {
+                    statusText = t('chartRec.approvalInstallingStatus', { packages, source: sourceLabel || t('chartRec.approvalDefaultSource') });
+                } else if (result.status === 'retrying_secondary') {
+                    statusText = t('chartRec.approvalRetryingSecondaryStatus', { packages, source: sourceLabel || t('chartRec.approvalSecondarySource') });
+                } else if (result.status === 'awaiting_official_approval') {
+                    statusText = t('chartRec.approvalAwaitingOfficialStatus', { packages });
+                } else if (result.status === 'installed') {
+                    statusText = t('chartRec.approvalInstalledStatus', { packages });
+                } else if (result.status === 'rejected') {
+                    statusText = t('chartRec.approvalRejectedStatus', { packages });
+                } else if (result.status === 'failed') {
+                    statusText = t('chartRec.approvalFailedStatus', { packages });
+                }
+                if (statusText) {
+                    thinkingSteps.push((result.status === 'failed' || result.status === 'rejected' ? '⚠ ' : '✓ ') + statusText);
+                    if (currentDraftId) {
+                        dispatch(dfActions.updateDraftRunningPlan({ draftId: currentDraftId, plan: thinkingSteps.join(STEP_SEP) }));
+                    }
+                }
+            }
+
+            if (result.type === "approval_required") {
+                const packages = Array.isArray(result.packages)
+                    ? result.packages.map((p: any) => String(p || '').trim()).filter(Boolean)
+                    : [];
+                const modules = Array.isArray(result.modules)
+                    ? result.modules.map((m: any) => String(m || '').trim()).filter(Boolean)
+                    : [];
+                const sources = Array.isArray(result.sources)
+                    ? result.sources.map((source: any) => ({
+                        id: String(source?.id || ''),
+                        label: String(source?.label || ''),
+                        url: String(source?.url || ''),
+                    }))
+                    : [];
+                const approval: PendingRuntimeApproval = {
+                    id: String(result.approval?.id || ''),
+                    kind: result.kind === 'official_pypi_fallback' ? 'official_pypi_fallback' : 'python_package_install',
+                    packages,
+                    modules,
+                    sources,
+                    errorMessage: result.error_message ? String(result.error_message) : undefined,
+                };
+                if (currentDraftId) {
+                    const priorSteps = thinkingSteps.filter(s => s.trim()).join('\n');
+                    thinkingSteps = [];
+                    pendingThought = '';
+                    dispatch(dfActions.updateDraftRunningPlan({ draftId: currentDraftId, plan: '' }));
+
+                    const pauseEntry: InteractionEntry = {
+                        from: 'data-agent',
+                        to: 'user',
+                        role: 'approval',
+                        plan: priorSteps || undefined,
+                        content: t(
+                            approval.kind === 'official_pypi_fallback'
+                                ? 'chartRec.approvalOfficialBody'
+                                : 'chartRec.approvalDomesticBody',
+                            { packages: packages.join(', ') || t('chartRec.approvalUnknownPackage') },
+                        ),
+                        approvalKind: approval.kind,
+                        approvalPackages: packages,
+                        approvalModules: modules,
+                        approvalSources: sources,
+                        approvalErrorMessage: approval.errorMessage,
+                        timestamp: Date.now(),
+                    };
+                    dispatch(dfActions.appendDraftInteraction({ draftId: currentDraftId, entry: pauseEntry }));
+                    currentDraftInteraction.push(pauseEntry);
+                    dispatch(dfActions.updateDeriveStatus({ nodeId: currentDraftId, status: 'clarifying' }));
+                    dispatch(dfActions.updateDraftClarification({ draftId: currentDraftId, pendingClarification: {
+                        trajectory: [],
+                        completedStepCount: 0,
+                        lastCreatedTableId,
+                        approval,
+                    }}));
+                }
+                setIsChatFormulating(false);
+                agentAbortRef.current = null;
+                clearTimeout(timeoutId);
+                isCompleted = true;
             }
 
             // ── action: agent chose what to do ──
@@ -1072,7 +1175,7 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
 
                     allResults.push(data);
                     processStreamingResult(data);
-                    if (data.type === "completion" || data.type === "clarify" || data.type === "explain" || data.type === "delegate") {
+                    if (data.type === "completion" || data.type === "clarify" || data.type === "explain" || data.type === "delegate" || data.type === "approval_required") {
                         handleCompletion();
                         return;
                     }
@@ -1291,6 +1394,9 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
             reportFromChat(prompt);
             return;
         }
+        if (clarificationCtx?.approval) {
+            return;
+        }
         if (clarificationCtx) {
             // Build the structured response payload. The backend assembles
             // the final LLM-facing text ("Selected answers: 1. xxx; 2. yyy\n
@@ -1325,6 +1431,15 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
         exploreFromChat(displayPrompt, pendingClarification);
     }, [exploreFromChat, pendingClarification]);
 
+    const resumeFromApproval = useCallback((decision: 'approve' | 'reject') => {
+        if (!pendingClarification?.approval) return;
+        const packages = (pendingClarification.approval.packages || []).join(', ');
+        const displayPrompt = decision === 'approve'
+            ? t('chartRec.approvalApprovedPrompt', { packages })
+            : t('chartRec.approvalRejectedPrompt', { packages });
+        exploreFromChat(displayPrompt, pendingClarification, displayPrompt, decision);
+    }, [exploreFromChat, pendingClarification, t]);
+
     // Reset accumulated clarification answers whenever the active
     // clarification draft changes (a new clarify/explain pause appeared,
     // the previous one was resumed, or the user dismissed it).
@@ -1340,8 +1455,9 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
     // click the remaining options (which auto-submits) or type something.
     const canSend = React.useMemo(() => {
         if (!focusedTableId) return false;
+        if (pendingClarification?.approval) return false;
         return chatPrompt.trim().length > 0;
-    }, [chatPrompt, focusedTableId]);
+    }, [chatPrompt, focusedTableId, pendingClarification?.approval]);
 
     // Handle a single clicked option (or free-text Enter) inside the
     // ClarificationPanel. We just record the selection by question index
@@ -1373,7 +1489,7 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
         // Always clear busy state — the async finally blocks also clear this,
         // but a direct cancel should guarantee the UI unblocks immediately.
         setIsChatFormulating(false);
-        // Also dismiss any pending pause draft (clarify or explain)
+        // Also dismiss any pending pause draft (clarify / explain / approval)
         if (pendingClarification?.draftId) {
             dispatch(dfActions.removeDraftNode(pendingClarification.draftId));
         }
@@ -1490,6 +1606,13 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
                     message={clarificationQuestions.message}
                     options={clarificationQuestions.options}
                     onCancel={cancelAgent}
+                />
+            )}
+            {clarificationQuestions?.kind === 'approval' && pendingClarification && !isChatFormulating && (
+                <ApprovalPanel
+                    approval={clarificationQuestions.approval}
+                    onApprove={() => resumeFromApproval('approve')}
+                    onReject={() => resumeFromApproval('reject')}
                 />
             )}
             {/* Input area wrapper */}

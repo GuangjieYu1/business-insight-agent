@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from data_formulator.agents.data_agent import DataAgent
+from data_formulator.runtime_packages import MissingPackageRequest
 
 pytestmark = [pytest.mark.backend]
 
@@ -21,6 +22,55 @@ def _agent() -> DataAgent:
 
 
 class TestDataAgentClarification:
+    def test_explore_missing_import_returns_approval_required(self, monkeypatch) -> None:
+        agent = _agent()
+        request = MissingPackageRequest(
+            modules=("xgboost",),
+            packages=("xgboost",),
+        )
+        monkeypatch.setattr(agent, "_missing_package_request_for_code", lambda code: request)
+
+        result = agent._run_explore_code(
+            "import xgboost\nprint('ready')",
+            [],
+        )
+
+        assert result["status"] == "approval_required"
+        assert result["approval_request"] == request
+        assert "approval" in result["error"].lower()
+
+    def test_run_emits_structured_approval_event(self, monkeypatch) -> None:
+        agent = DataAgent(client=_FakeClient(), workspace=None, identity_id="user-1")
+        request = MissingPackageRequest(
+            modules=("xgboost", "shap"),
+            packages=("xgboost", "shap"),
+        )
+
+        def fake_get_next_action(trajectory, input_tables, outer_iteration=0):
+            yield {
+                "type": "package_approval_candidate",
+                "request": request,
+                "error_message": "No module named 'xgboost'",
+            }
+            yield {
+                "type": "agent_action",
+                "action_data": None,
+                "reason": "approval_required",
+                "llm_calls": 1,
+            }
+
+        monkeypatch.setattr(agent, "_get_next_action", fake_get_next_action)
+
+        events = list(agent.run([], "", trajectory=[{"role": "system", "content": "test"}]))
+
+        evt = events[-1]
+        assert evt["type"] == "approval_required"
+        assert evt["kind"] == "python_package_install"
+        assert evt["packages"] == ["xgboost", "shap"]
+        assert evt["modules"] == ["xgboost", "shap"]
+        assert evt["approval"]["id"]
+        assert evt["error_message"] == "No module named 'xgboost'"
+
     def test_clarify_action_outputs_structured_questions(self, monkeypatch) -> None:
         agent = _agent()
 

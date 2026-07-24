@@ -12,10 +12,17 @@ import logging
 import os
 import threading
 import warnings
+from dataclasses import dataclass
 from multiprocessing import Pipe, Process
 from sys import addaudithook
 
 import pandas as pd
+
+from data_formulator.runtime_packages import (
+    approved_runtime_modules,
+    ensure_runtime_package_paths,
+    runtime_bundle_paths,
+)
 
 from .base import Sandbox
 
@@ -25,6 +32,23 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Persistent warm worker
 # ---------------------------------------------------------------------------
+
+class SandboxViolation(RuntimeError):
+    """Structured sandbox denial raised from the audit hook."""
+
+    def __init__(self, kind: str, event: str, message: str, detail: str | None = None):
+        super().__init__(message)
+        self.kind = kind
+        self.event = event
+        self.detail = detail
+
+
+@dataclass
+class _WorkerHandle:
+    proc: Process
+    conn: object
+    generation: int
+
 
 def _warm_worker_loop(conn):
     """Long-lived child process that pre-imports heavy libraries then
@@ -57,6 +81,8 @@ def _warm_worker_loop(conn):
     # (Python stdlib, site-packages, etc.) so that library imports
     # (e.g. pyarrow.parquet) are not blocked during code execution.
     import site as _site, sysconfig as _sysconfig
+    ensure_runtime_package_paths()
+
     _allowed_lib_prefixes = set()
     for _p in (
         *_site.getsitepackages(),
@@ -64,6 +90,7 @@ def _warm_worker_loop(conn):
         _sysconfig.get_path("stdlib"),
         _sysconfig.get_path("purelib"),
         _sysconfig.get_path("platlib"),
+        *runtime_bundle_paths(),
     ):
         if _p:
             _rp = os.path.realpath(_p)
@@ -89,6 +116,11 @@ def _warm_worker_loop(conn):
         )
     except ImportError:
         pass
+    for _module_name in approved_runtime_modules():
+        try:
+            __import__(_module_name)
+        except Exception as exc:
+            logger.warning("Failed to preload approved runtime module %s", _module_name, exc_info=exc)
 
     import sys as _sys
 
@@ -98,18 +130,22 @@ def _warm_worker_loop(conn):
             raise RuntimeError("bad audit event")
         # Block file writes (only allow reading)
         if event == "open" and type(arg[1]) == str and arg[1] not in ("r", "rb"):
-            raise IOError("file write forbidden")
+            raise SandboxViolation("file_write", event, "file write forbidden", str(arg[0]))
         # Restrict file reads to the workspace directory during code execution.
         # Always allow reads from Python library directories (stdlib, site-packages).
         if (event == "open" and type(arg[1]) == str and arg[1] in ("r", "rb")
                 and _allowed_workspace[0] is not None):
             resolved = os.path.realpath(arg[0])
             if not resolved.startswith(_allowed_workspace[0]) and not resolved.startswith(_allowed_lib_prefixes):
-                raise IOError(f"file read outside workspace forbidden: {arg[0]}")
+                raise SandboxViolation("file_read", event, f"file read outside workspace forbidden: {arg[0]}", str(arg[0]))
         # Block dangerous filesystem / process operations
         _blocked_prefixes = ("subprocess", "shutil", "winreg", "webbrowser")
         if event.split(".")[0] in _blocked_prefixes:
-            raise IOError("potentially dangerous, filesystem-accessing functions forbidden")
+            raise SandboxViolation(
+                "process",
+                event,
+                "potentially dangerous, filesystem-accessing functions forbidden",
+            )
         # Block dangerous os operations (process execution, signals,
         # environment manipulation).  We intentionally do NOT add "os"
         # to _blocked_prefixes because libraries like pandas/numpy rely
@@ -121,15 +157,15 @@ def _warm_worker_loop(conn):
             "os.putenv", "os.unsetenv",
         })
         if event in _blocked_os_events:
-            raise IOError("dangerous os operation forbidden in sandbox")
+            raise SandboxViolation("os_operation", event, "dangerous os operation forbidden in sandbox")
         # Block network access — code should only transform data, not
         # make outbound connections (prevents data exfiltration).
         if event in ("socket.connect", "socket.bind", "socket.sendto",
                       "socket.sendmsg", "socket.getaddrinfo"):
-            raise IOError("network access forbidden in sandbox")
+            raise SandboxViolation("network", event, "network access forbidden in sandbox")
         # Block ctypes / dynamic library loading (could bypass audit hooks)
         if event in ("ctypes.dlopen", "ctypes.dlsym", "ctypes.set_errno"):
-            raise IOError("ctypes access forbidden in sandbox")
+            raise SandboxViolation("ctypes", event, "ctypes access forbidden in sandbox")
         # Block import of dangerous modules (allow re-import of ctypes
         # since scipy/sklearn pre-loaded it for BLAS access).
         if event == "import" and type(arg[0]) == str:
@@ -141,7 +177,12 @@ def _warm_worker_loop(conn):
                 if mod_name == "ctypes" and "ctypes" in _sys.modules:
                     pass
                 else:
-                    raise ImportError(f"import of '{mod_name}' is forbidden in sandbox")
+                    raise SandboxViolation(
+                        "module_import",
+                        event,
+                        f"import of '{mod_name}' is forbidden in sandbox",
+                        mod_name,
+                    )
 
     addaudithook(block_mischief)
     del block_mischief
@@ -205,6 +246,27 @@ def _warm_worker_loop(conn):
             # server-originated code is executed. Additional audit hooks above block
             # file writes, network access, subprocess spawning, and dangerous imports.
             exec(code, namespace)  # nosec  # codeql[py/code-injection]
+        except SandboxViolation as err:
+            conn.send({
+                "status": "error",
+                "error_message": f"Error: {type(err).__name__} - {err}",
+                "sandbox_violation": {
+                    "kind": err.kind,
+                    "event": err.event,
+                    "detail": err.detail,
+                    "message": str(err),
+                },
+            })
+            _allowed_workspace[0] = None
+            continue
+        except ModuleNotFoundError as err:
+            conn.send({
+                "status": "error",
+                "error_message": f"Error: {type(err).__name__} - {err}",
+                "missing_module": getattr(err, "name", None) or str(err),
+            })
+            _allowed_workspace[0] = None
+            continue
         except Exception as err:
             conn.send({"status": "error", "error_message": f"Error: {type(err).__name__} - {err}"})
             _allowed_workspace[0] = None
@@ -242,45 +304,66 @@ class _WarmWorkerPool:
     def __init__(self, size: int = 2):
         self._size = size
         self._lock = threading.Lock()
-        self._available: list[tuple[Process, object]] = []
-        self._all: list[tuple[Process, object]] = []
+        self._available: list[_WorkerHandle] = []
+        self._all: list[_WorkerHandle] = []
         self._closed = False
+        self._generation = 0
         atexit.register(self.shutdown)
 
-    def _spawn(self) -> tuple[Process, object]:
+    def _spawn(self) -> _WorkerHandle:
         parent_conn, child_conn = Pipe()
         p = Process(target=_warm_worker_loop, args=(child_conn,), daemon=True)
         p.start()
-        return p, parent_conn
+        return _WorkerHandle(proc=p, conn=parent_conn, generation=self._generation)
 
-    def acquire(self) -> tuple[Process, object]:
+    def acquire(self) -> _WorkerHandle:
         """Get a warm worker (process, conn). Spawns one if needed."""
         with self._lock:
             while self._available:
-                proc, conn = self._available.pop()
-                if proc.is_alive():
-                    return proc, conn
-                # Dead worker -- discard and try next
+                worker = self._available.pop()
+                if worker.generation != self._generation:
+                    self._discard_worker(worker)
+                    continue
+                if worker.proc.is_alive():
+                    return worker
+                self._discard_worker(worker)
             # No available workers -- spawn a new one (up to pool size is advisory)
-            pair = self._spawn()
-            self._all.append(pair)
-            return pair
+            worker = self._spawn()
+            self._all.append(worker)
+            return worker
 
-    def release(self, proc: Process, conn) -> None:
+    def release(self, worker: _WorkerHandle) -> None:
         """Return a worker to the pool for reuse."""
         with self._lock:
-            if not self._closed and proc.is_alive():
-                self._available.append((proc, conn))
+            if self._closed or worker.generation != self._generation or not worker.proc.is_alive():
+                self._discard_worker(worker)
+                return
+            self._available.append(worker)
 
-    def discard(self, proc: Process, conn) -> None:
+    def discard(self, worker: _WorkerHandle) -> None:
         """Discard a broken worker (don't put it back)."""
+        self._discard_worker(worker)
+
+    def refresh(self) -> None:
+        with self._lock:
+            self._generation += 1
+            stale_workers = list(self._available)
+            self._available.clear()
+        for worker in stale_workers:
+            self._discard_worker(worker)
+
+    def _discard_worker(self, worker: _WorkerHandle) -> None:
         try:
-            conn.send(None)
+            worker.conn.send(None)
         except Exception:
             pass
         try:
-            proc.terminate()
+            worker.proc.terminate()
         except Exception:
+            pass
+        try:
+            self._all.remove(worker)
+        except ValueError:
             pass
 
     def shutdown(self) -> None:
@@ -290,21 +373,26 @@ class _WarmWorkerPool:
             self._available.clear()
             self._all.clear()
 
-        for proc, conn in all_workers:
+        for worker in all_workers:
             try:
-                conn.send(None)
+                worker.conn.send(None)
             except Exception:
                 pass
             try:
-                proc.join(timeout=2)
+                worker.proc.join(timeout=2)
             except Exception:
                 pass
-            if proc.is_alive():
-                proc.terminate()
+            if worker.proc.is_alive():
+                worker.proc.terminate()
 
 
 # Module-level pool -- shared by all LocalSandbox instances using subprocess mode.
 _worker_pool = _WarmWorkerPool(size=2)
+
+
+def refresh_runtime_package_workers() -> None:
+    """Rotate idle warm workers so new ones preload newly approved packages."""
+    _worker_pool.refresh()
 
 
 class SandboxSession:
@@ -319,7 +407,9 @@ class SandboxSession:
     EXECUTION_TIMEOUT = int(os.environ.get("DF_SANDBOX_TIMEOUT", "120"))
 
     def __init__(self):
-        self._proc, self._conn = _worker_pool.acquire()
+        self._worker = _worker_pool.acquire()
+        self._proc = self._worker.proc
+        self._conn = self._worker.conn
         self._closed = False
 
     # -- public API --------------------------------------------------------
@@ -338,14 +428,14 @@ class SandboxSession:
             if self._conn.poll(timeout=self.EXECUTION_TIMEOUT):
                 return self._conn.recv()
             # Timed out — kill and discard the worker
-            _worker_pool.discard(self._proc, self._conn)
+            _worker_pool.discard(self._worker)
             self._closed = True
             return {
                 "status": "error",
                 "error_message": f"Code execution timed out after {self.EXECUTION_TIMEOUT}s",
             }
         except Exception as e:
-            _worker_pool.discard(self._proc, self._conn)
+            _worker_pool.discard(self._worker)
             self._closed = True
             return {"status": "error", "error_message": f"Worker communication failed: {e}"}
 
@@ -358,15 +448,15 @@ class SandboxSession:
             self._conn.send("__clear_ns__")
             if self._conn.poll(timeout=5):
                 self._conn.recv()
-                _worker_pool.release(self._proc, self._conn)
+                _worker_pool.release(self._worker)
             else:
                 # Ack didn't arrive in time -- worker may still be busy or
                 # the pipe has stale data.  Discard rather than returning a
                 # contaminated worker to the pool (otherwise the next
                 # session's recv() would pick up the leftover ack).
-                _worker_pool.discard(self._proc, self._conn)
+                _worker_pool.discard(self._worker)
         except Exception:
-            _worker_pool.discard(self._proc, self._conn)
+            _worker_pool.discard(self._worker)
 
     # -- cross-turn namespace save/restore ---------------------------------
 
@@ -538,6 +628,8 @@ class LocalSandbox(Sandbox):
                     return {
                         "status": "error",
                         "content": result.get("error_message", result.get("content", "Unknown error")),
+                        "sandbox_violation": result.get("sandbox_violation"),
+                        "missing_module": result.get("missing_module"),
                     }
 
             except Exception as e:
@@ -556,15 +648,15 @@ class LocalSandbox(Sandbox):
     @staticmethod
     def _run_in_warm_subprocess(code, allowed_objects, workspace_path=None):
         """Send code to a warm worker from the pool, return the result."""
-        proc, conn = _worker_pool.acquire()
+        worker = _worker_pool.acquire()
         try:
-            conn.send((code, {**allowed_objects}, workspace_path))
+            worker.conn.send((code, {**allowed_objects}, workspace_path))
             # Enforce a wall-clock timeout to prevent runaway code
-            if conn.poll(timeout=LocalSandbox.EXECUTION_TIMEOUT):
-                result = conn.recv()
+            if worker.conn.poll(timeout=LocalSandbox.EXECUTION_TIMEOUT):
+                result = worker.conn.recv()
             else:
                 # Timed out — kill and discard the worker
-                _worker_pool.discard(proc, conn)
+                _worker_pool.discard(worker)
                 return {
                     "status": "error",
                     "content": (
@@ -572,10 +664,8 @@ class LocalSandbox(Sandbox):
                         f"{LocalSandbox.EXECUTION_TIMEOUT}s"
                     ),
                 }
-            _worker_pool.release(proc, conn)
+            _worker_pool.release(worker)
             return result
         except Exception as e:
-            _worker_pool.discard(proc, conn)
+            _worker_pool.discard(worker)
             return {"status": "error", "content": f"Error: worker communication failed - {e}"}
-
-

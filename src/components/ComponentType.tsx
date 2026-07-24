@@ -59,11 +59,27 @@ export interface ClarificationResponse {
 }
 
 export type DelegateTarget = 'data_loading' | 'report_gen';
+export type RuntimeApprovalKind = 'python_package_install' | 'official_pypi_fallback';
+
+export interface RuntimeApprovalSource {
+    id: string;
+    label: string;
+    url: string;
+}
+
+export interface PendingRuntimeApproval {
+    id: string;
+    kind: RuntimeApprovalKind;
+    packages: string[];
+    modules: string[];
+    sources: RuntimeApprovalSource[];
+    errorMessage?: string;
+}
 
 export interface InteractionEntry {
     from: Actor;
     to: Actor;
-    role: 'prompt' | 'clarify' | 'instruction' | 'summary' | 'error' | 'explain' | 'delegate';
+    role: 'prompt' | 'clarify' | 'instruction' | 'summary' | 'error' | 'explain' | 'delegate' | 'approval';
     plan?: string; // agent's reasoning / thought for this action
     content: string;
     displayContent?: string;
@@ -76,6 +92,12 @@ export interface InteractionEntry {
      *  is shown on its own button and used as the seed prompt sent to
      *  the target agent on click. */
     delegateOptions?: string[];
+    /** For 'approval' entries: missing-package approval request details. */
+    approvalKind?: RuntimeApprovalKind;
+    approvalPackages?: string[];
+    approvalModules?: string[];
+    approvalSources?: RuntimeApprovalSource[];
+    approvalErrorMessage?: string;
     timestamp?: number;
 }
 
@@ -85,6 +107,7 @@ export interface PendingClarification {
     trajectory: any[];
     completedStepCount: number;
     lastCreatedTableId: string | null;
+    approval?: PendingRuntimeApproval | null;
 }
 
 export interface DraftNode {

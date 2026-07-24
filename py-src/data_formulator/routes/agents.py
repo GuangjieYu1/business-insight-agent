@@ -2,11 +2,13 @@
 # Licensed under the MIT License.
 
 import argparse
+import queue
 import random
 import sys
 import os
 import mimetypes
 import re
+import threading
 mimetypes.add_type('application/javascript', '.js')
 mimetypes.add_type('application/javascript', '.mjs')
 
@@ -37,12 +39,21 @@ from data_formulator.agents.agent_report_gen import ReportGenAgent
 from data_formulator.agents.client_utils import Client
 from data_formulator.model_registry import model_registry
 from data_formulator.knowledge.store import KnowledgeStore
+from data_formulator.runtime_packages import (
+    RuntimePackageApprovalError,
+    approval_event_payload,
+    approval_status_event,
+    consume_runtime_package_approval,
+    create_followup_runtime_package_approval,
+    install_runtime_packages,
+)
 
 from data_formulator.agents.data_agent import DataAgent
 from data_formulator.agents.agent_language import build_language_instruction
 from data_formulator.security.sanitize import classify_llm_error, sanitize_error_message
 from data_formulator.error_handler import json_ok, stream_preflight_error, classify_and_wrap_llm_error
 from data_formulator.errors import AppError, ErrorCode
+from data_formulator.sandbox.local_sandbox import refresh_runtime_package_workers
 
 # Get logger for this module (logging config done in app.py)
 logger = logging.getLogger(__name__)
@@ -80,6 +91,7 @@ def _start_data_agent_ledger(
     input_tables: list[dict],
     user_question: str,
     resume_trajectory: list[dict] | None,
+    resume_token: str | None = None,
 ):
     '''Start the BIA sidecar ledger without affecting the Data Agent.'''
 
@@ -97,6 +109,7 @@ def _start_data_agent_ledger(
             input_tables=input_tables,
             user_question=user_question,
             resume_trajectory=resume_trajectory,
+            resume_token=resume_token,
         )
     except Exception:
         logger.warning('Data Agent ledger could not be started', exc_info=True)
@@ -474,6 +487,8 @@ def data_agent_streaming():
         tool_start  – agent is about to call a tool (explore/visualize/clarify)
         tool_result – tool execution result (visualize results match DataRecAgent format)
         clarify     – clarification question (loop pauses)
+        approval_required – user approval needed for runtime package install
+        approval_status   – install progress / outcome updates
         done        – turn complete
         error       – error information
 
@@ -481,6 +496,14 @@ def data_agent_streaming():
         - trajectory: the trajectory list returned in the clarify event
         - user_question: the user's reply (selections + freeform), already
           assembled by the frontend (the same string shown in the timeline)
+
+    To resume after an approval pause, the client sends:
+        {
+          "approval": {
+            "id": "<opaque id>",
+            "decision": "approve" | "reject"
+          }
+        }
     """
     from data_formulator.error_handler import stream_error_event
 
@@ -508,8 +531,18 @@ def data_agent_streaming():
     attached_images = content.get("attached_images", None)
     resume_trajectory = content.get("trajectory", None)
     completed_step_count = content.get("completed_step_count", 0)
+    approval_input = content.get("approval", None)
 
-    if resume_trajectory is not None and not str(user_question or "").strip():
+    if approval_input is not None:
+        approval_id = str(approval_input.get("id", "")).strip()
+        approval_decision = str(approval_input.get("decision", "")).strip().lower()
+        if not approval_id or approval_decision not in {"approve", "reject"}:
+            return stream_preflight_error(AppError(ErrorCode.INVALID_REQUEST, "approval.id and approval.decision are required"))
+    else:
+        approval_id = ""
+        approval_decision = ""
+
+    if resume_trajectory is not None and approval_input is None and not str(user_question or "").strip():
         return stream_preflight_error(AppError(ErrorCode.INVALID_REQUEST, "user_question is required to resume after clarification"))
 
     logger.setLevel(logging.INFO)
@@ -529,6 +562,7 @@ def data_agent_streaming():
             input_tables=input_tables,
             user_question=user_question,
             resume_trajectory=resume_trajectory,
+            resume_token=approval_id if approval_input is not None else None,
         )
         try:
             agent = DataAgent(
@@ -541,6 +575,195 @@ def data_agent_streaming():
                 max_repair_attempts=max_repair_attempts,
                 identity_id=identity_id,
             )
+
+            def emit_event(event: dict[str, object]) -> str:
+                nonlocal ledger
+                ledger = _call_data_agent_ledger(ledger, 'observe', event)
+                return json.dumps(event, ensure_ascii=False) + '\n'
+
+            def stream_agent_run(
+                *,
+                run_input_tables: list[dict],
+                run_user_question: str,
+                trajectory_override: list[dict] | None,
+                completed_steps: int,
+            ):
+                for event in agent.run(
+                    input_tables=run_input_tables,
+                    user_question=run_user_question,
+                    focused_thread=focused_thread,
+                    other_threads=other_threads,
+                    trajectory=trajectory_override,
+                    completed_step_count=completed_steps,
+                    primary_tables=primary_tables,
+                    attached_images=attached_images,
+                ):
+                    yield emit_event(event)
+                    if event.get("type") in ("completion", "clarify", "explain", "approval_required"):
+                        return
+
+            def build_resume_message(
+                packages: tuple[str, ...],
+                *,
+                mode: str,
+                source_label: str | None = None,
+                versions: dict[str, str] | None = None,
+                error_message: str | None = None,
+            ) -> str:
+                package_list = ", ".join(packages)
+                if mode == "installed":
+                    versions_text = ""
+                    if versions:
+                        versions_text = " Installed versions: " + ", ".join(
+                            f"{name}=={version}" for name, version in sorted(versions.items())
+                        ) + "."
+                    source_text = f" via {source_label}" if source_label else ""
+                    return (
+                        "[SYSTEM] The approved runtime Python packages are now available "
+                        f"({package_list}){source_text}.{versions_text} Continue from where "
+                        "you left off and do not attempt pip, subprocess, shell commands, "
+                        "or network downloads yourself."
+                    )
+                if mode == "rejected":
+                    return (
+                        "[SYSTEM] The user declined runtime installation for "
+                        f"{package_list}. Continue using only the libraries already "
+                        "available in the sandbox (for example sklearn if suitable). "
+                        "Do not ask to install packages again in this run and do not "
+                        "attempt pip or shell commands."
+                    )
+                return (
+                    "[SYSTEM] Runtime installation for "
+                    f"{package_list} could not be completed"
+                    f"{': ' + error_message if error_message else ''}. Continue using "
+                    "only the libraries already available in the sandbox and do not "
+                    "attempt pip or shell commands."
+                )
+
+            if approval_input is not None:
+                try:
+                    approval = consume_runtime_package_approval(
+                        approval_id,
+                        identity_id=identity_id,
+                    )
+                except RuntimePackageApprovalError as exc:
+                    yield emit_event({
+                        "type": "error",
+                        "message": str(exc),
+                    })
+                    return
+
+                if approval_decision == "approve":
+                    progress_queue: queue.Queue[dict | None] = queue.Queue()
+                    install_holder: dict[str, object] = {}
+
+                    def on_progress(status: str, source: dict[str, str]) -> None:
+                        progress_queue.put(approval_status_event(
+                            status,
+                            packages=approval.packages,
+                            source=source,
+                        ))
+
+                    def install_worker() -> None:
+                        try:
+                            install_holder["result"] = install_runtime_packages(
+                                packages=approval.packages,
+                                modules=approval.modules,
+                                allow_official=(approval.kind == "official_pypi_fallback"),
+                                progress_callback=on_progress,
+                            )
+                        except Exception as exc:
+                            install_holder["error"] = exc
+                        finally:
+                            progress_queue.put(None)
+
+                    worker = threading.Thread(target=install_worker, daemon=True)
+                    worker.start()
+
+                    while True:
+                        progress_event = progress_queue.get()
+                        if progress_event is None:
+                            break
+                        yield emit_event(progress_event)
+
+                    worker.join()
+
+                    if "error" in install_holder:
+                        raise install_holder["error"]  # type: ignore[misc]
+
+                    install_result = install_holder["result"]
+                    if install_result.status == "awaiting_official_approval":
+                        followup = create_followup_runtime_package_approval(
+                            approval,
+                            kind="official_pypi_fallback",
+                        )
+                        yield emit_event(approval_status_event(
+                            "awaiting_official_approval",
+                            packages=approval.packages,
+                            error_message=install_result.error_message,
+                        ))
+                        yield emit_event(approval_event_payload(
+                            followup,
+                            error_message=install_result.error_message,
+                        ))
+                        return
+
+                    source_payload = None
+                    if install_result.source_id or install_result.source_label or install_result.index_url:
+                        source_payload = {
+                            "id": install_result.source_id or "",
+                            "label": install_result.source_label or "",
+                            "url": install_result.index_url or "",
+                        }
+
+                    if install_result.status == "installed":
+                        yield emit_event(approval_status_event(
+                            "installed",
+                            packages=approval.packages,
+                            source=source_payload,
+                            versions=install_result.versions or {},
+                        ))
+                        refresh_runtime_package_workers()
+                        resume_message = build_resume_message(
+                            approval.packages,
+                            mode="installed",
+                            source_label=install_result.source_label,
+                            versions=install_result.versions,
+                        )
+                    else:
+                        yield emit_event(approval_status_event(
+                            "failed",
+                            packages=approval.packages,
+                            source=source_payload,
+                            error_message=install_result.error_message,
+                        ))
+                        resume_message = build_resume_message(
+                            approval.packages,
+                            mode="failed",
+                            error_message=install_result.error_message,
+                        )
+                else:
+                    yield emit_event(approval_status_event(
+                        "rejected",
+                        packages=approval.packages,
+                    ))
+                    resume_message = build_resume_message(
+                        approval.packages,
+                        mode="rejected",
+                    )
+
+                approval_trajectory = list(approval.trajectory)
+                approval_trajectory.append({
+                    "role": "user",
+                    "content": resume_message,
+                })
+                yield from stream_agent_run(
+                    run_input_tables=approval.input_tables,
+                    run_user_question=resume_message,
+                    trajectory_override=approval_trajectory,
+                    completed_steps=approval.completed_step_count,
+                )
+                return
 
             trajectory = None
             if resume_trajectory:
@@ -556,21 +779,12 @@ def data_agent_streaming():
                 })
                 logger.debug("== resuming after clarification ===>")
 
-            for event in agent.run(
-                input_tables=input_tables,
-                user_question=user_question,
-                focused_thread=focused_thread,
-                other_threads=other_threads,
-                trajectory=trajectory,
-                completed_step_count=completed_step_count,
-                primary_tables=primary_tables,
-                attached_images=attached_images,
-            ):
-                ledger = _call_data_agent_ledger(ledger, 'observe', event)
-                yield json.dumps(event, ensure_ascii=False) + '\n'
-
-                if event.get("type") in ("completion", "clarify", "explain"):
-                    break
+            yield from stream_agent_run(
+                run_input_tables=input_tables,
+                run_user_question=user_question,
+                trajectory_override=trajectory,
+                completed_steps=completed_step_count,
+            )
 
         except Exception as e:
             logger.error("Error in data-agent-streaming", exc_info=e)

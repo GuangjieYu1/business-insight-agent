@@ -45,6 +45,13 @@ from data_formulator.agents.client_utils import Client
 from data_formulator.datalake.parquet_utils import df_to_safe_records
 from data_formulator.agents.chart_creation_guide import CHART_CREATION_GUIDE
 from data_formulator.security.code_signing import sign_result
+from data_formulator.runtime_packages import (
+    MissingPackageRequest,
+    approval_event_payload,
+    create_runtime_package_approval,
+    detect_missing_runtime_packages_from_code,
+    detect_missing_runtime_packages_from_error_message,
+)
 from data_formulator.workflows.create_vl_plots import (
     assemble_vegailte_chart,
     coerce_field_type,
@@ -108,7 +115,10 @@ TOOLS = [
             "description": (
                 "Run Python code to inspect data, compute statistics, or verify "
                 "assumptions.  Use print() to see results — stdout is returned. "
-                "pandas, numpy, duckdb, sklearn, scipy are available."
+                "pandas, numpy, duckdb, sklearn, scipy are available. "
+                "If another Python package is missing, the system may ask "
+                "the user for approval to install it. Never run pip or "
+                "shell commands yourself."
             ),
             "parameters": {
                 "type": "object",
@@ -236,6 +246,10 @@ The initial context already includes sample rows and statistics for each
 table.  If the data is straightforward, proceed directly to your action
 without calling tools.  Tool results are returned to you before you
 produce your action.  Tools are NOT shown to the user.
+
+If Python code needs a package that is not already available, stop and let
+the system request approval. Never try to run pip, python -m pip, shell
+commands, os.system, subprocess, or network downloads yourself.
 
 ## Actions (external — shown to the user)
 
@@ -395,6 +409,7 @@ class DataAgent:
         self.language_instruction = language_instruction
         self.max_iterations = max_iterations
         self.max_repair_attempts = max_repair_attempts
+        self.identity_id = identity_id or ""
 
         from data_formulator.agents.reasoning_log import (
             ReasoningLogger, _NullReasoningLogger,
@@ -429,6 +444,50 @@ class DataAgent:
     def _explore_ns_dir(self) -> Path:
         """Directory for cross-turn namespace serialisation."""
         return self.workspace.confined_scratch.root / "_explore_ns"
+
+    @staticmethod
+    def _approval_request_payload(request: MissingPackageRequest) -> dict[str, list[str]]:
+        return {
+            "modules": list(request.modules),
+            "packages": list(request.packages),
+        }
+
+    def _missing_package_request_for_code(self, code: str) -> MissingPackageRequest | None:
+        return detect_missing_runtime_packages_from_code(code)
+
+    def _missing_package_request_for_error(
+        self,
+        error_message: str,
+        missing_module: str | None = None,
+    ) -> MissingPackageRequest | None:
+        if missing_module:
+            request = detect_missing_runtime_packages_from_error_message(
+                f"No module named '{missing_module}'"
+            )
+            if request is not None:
+                return request
+        return detect_missing_runtime_packages_from_error_message(error_message or "")
+
+    def _build_package_approval_event(
+        self,
+        *,
+        request: MissingPackageRequest,
+        trajectory: list[dict],
+        completed_step_count: int,
+        input_tables: list[dict[str, Any]],
+        error_message: str | None = None,
+    ) -> dict[str, Any] | None:
+        if not self.identity_id or not request.packages:
+            return None
+        approval = create_runtime_package_approval(
+            identity_id=self.identity_id,
+            kind="python_package_install",
+            request=request,
+            trajectory=self._strip_images(trajectory),
+            completed_step_count=completed_step_count,
+            input_tables=input_tables,
+        )
+        return approval_event_payload(approval, error_message=error_message)
 
     # ------------------------------------------------------------------
     # Public API
@@ -525,12 +584,34 @@ class DataAgent:
                         action_reason = event.get("reason", "ok")
                         action_error = event.get("error_message", "")
                         total_llm_calls += event.get("llm_calls", 0)
+                    elif event.get("type") == "package_approval_candidate":
+                        approval_event = self._build_package_approval_event(
+                            request=event["request"],
+                            trajectory=trajectory,
+                            completed_step_count=len(completed_steps),
+                            input_tables=input_tables,
+                            error_message=event.get("error_message"),
+                        )
+                        if approval_event is None:
+                            final_status = "approval_required"
+                            yield self._error_event(
+                                iteration,
+                                event.get("error_message") or "Missing Python package approval could not be created.",
+                            )
+                            self._log_session_end(rlog, final_status, iteration, total_llm_calls, session_start_time)
+                            return
+                        yield approval_event
                     else:
                         yield event
                 logger.info("[DataAgent] iteration %d total=%.2fs reason=%s",
                             iteration, time.time() - t_start, action_reason)
 
                 if action is None:
+                    if action_reason == "approval_required":
+                        final_status = "approval_required"
+                        self._log_session_end(rlog, final_status, iteration, total_llm_calls, session_start_time)
+                        return
+
                     # ① tool rounds exhausted → pause and let the user decide
                     if action_reason == "tool_rounds_exhausted":
                         steps_desc = "\n".join(
@@ -743,6 +824,37 @@ class DataAgent:
                         outer_iteration=iteration,
                     )
                     total_llm_calls += viz_result.get("repair_llm_calls", 0)
+
+                    if viz_result["status"] == "approval_required":
+                        approval_request = viz_result.get("approval_request")
+                        if approval_request is None:
+                            final_status = "approval_required"
+                            yield self._error_event(
+                                iteration,
+                                viz_result.get("error_message") or "Missing Python package approval could not be created.",
+                                display_instruction=display_instruction,
+                            )
+                            self._log_session_end(rlog, final_status, iteration, total_llm_calls, session_start_time)
+                            return
+                        approval_event = self._build_package_approval_event(
+                            request=approval_request,
+                            trajectory=trajectory,
+                            completed_step_count=len(completed_steps),
+                            input_tables=input_tables,
+                            error_message=viz_result.get("error_message"),
+                        )
+                        if approval_event is None:
+                            final_status = "approval_required"
+                            yield self._error_event(
+                                iteration,
+                                viz_result.get("error_message") or "Missing Python package approval could not be created.",
+                                display_instruction=display_instruction,
+                            )
+                        else:
+                            final_status = "approval_required"
+                            yield approval_event
+                        self._log_session_end(rlog, final_status, iteration, total_llm_calls, session_start_time)
+                        return
 
                     if viz_result["status"] != "ok":
                         error_msg = viz_result.get("error_message", "Unknown error")
@@ -992,7 +1104,7 @@ class DataAgent:
         rlog = self._reasoning_log
         repair_llm_calls = 0
         attempt = 0
-        while viz_result["status"] != "ok" and attempt < self.max_repair_attempts:
+        while viz_result["status"] not in {"ok", "approval_required"} and attempt < self.max_repair_attempts:
             attempt += 1
             error_msg = viz_result.get("error_message", "Unknown error")
             logger.warning(f"[DataAgent] Repair attempt {attempt}/{self.max_repair_attempts}: {error_msg}")
@@ -1049,6 +1161,18 @@ class DataAgent:
         ``SandboxSession`` so that variables persist across calls.
         Falls back to a one-shot subprocess otherwise.
         """
+        approval_request = self._missing_package_request_for_code(code)
+        if approval_request is not None:
+            return {
+                "status": "approval_required",
+                "approval_request": approval_request,
+                "error": (
+                    "Python packages require approval before installation: "
+                    f"{', '.join(approval_request.packages)}"
+                ),
+                "stdout": "",
+            }
+
         # Wrap code: capture stdout
         capture_code = (
             "import io as _io, sys as _sys, pandas as _pd\n"
@@ -1096,10 +1220,23 @@ class DataAgent:
                     stdout = stdout[:8000] + "\n... (truncated)"
                 return {"status": "ok", "stdout": stdout}
             else:
+                error_message = raw.get("error_message", raw.get("content", "Unknown error"))
+                missing_request = self._missing_package_request_for_error(
+                    str(error_message),
+                    raw.get("missing_module"),
+                )
+                if missing_request is not None:
+                    return {
+                        "status": "approval_required",
+                        "approval_request": missing_request,
+                        "error": str(error_message),
+                        "stdout": "",
+                    }
                 return {
                     "status": "error",
-                    "error": raw.get("error_message", raw.get("content", "Unknown error")),
+                    "error": error_message,
                     "stdout": "",
+                    "sandbox_violation": raw.get("sandbox_violation"),
                 }
         except Exception as e:
             logger.error("[DataAgent] Sandbox execution error", exc_info=e)
@@ -1126,6 +1263,17 @@ class DataAgent:
             sandbox_mode = 'local'
             max_display_rows = 5000
 
+        approval_request = self._missing_package_request_for_code(code)
+        if approval_request is not None:
+            return {
+                "status": "approval_required",
+                "approval_request": approval_request,
+                "error_message": (
+                    "Python packages require approval before installation: "
+                    f"{', '.join(approval_request.packages)}"
+                ),
+            }
+
         # Patch output_variable if needed
         code, was_patched, detected_var = ensure_output_variable_in_code(code, output_variable)
         if was_patched:
@@ -1142,6 +1290,16 @@ class DataAgent:
 
             if execution_result['status'] != 'ok':
                 error_message = execution_result.get('content', 'Unknown error')
+                missing_request = self._missing_package_request_for_error(
+                    str(error_message),
+                    execution_result.get("missing_module"),
+                )
+                if missing_request is not None:
+                    return {
+                        "status": "approval_required",
+                        "approval_request": missing_request,
+                        "error_message": str(error_message),
+                    }
                 return {"status": "error", "error_message": str(error_message)}
 
             full_df = execution_result['content']
@@ -1542,7 +1700,7 @@ class DataAgent:
                 llm_calls_in_cycle, rlog, input_tables, outer_iteration,
             )
 
-            if self._tool_loop_exit_reason == "tool_rounds_exhausted":
+            if self._tool_loop_exit_reason in {"tool_rounds_exhausted", "approval_required"}:
                 saved = explore_session.save_namespace(ns_dir, ws_path)
                 if saved:
                     logger.info("[DataAgent] Saved explore namespace to %s", ns_dir)
@@ -1657,6 +1815,47 @@ class DataAgent:
                         )
                         tool_content = result.get("stdout", "")
                         tool_status = result.get("status", "ok")
+                        if tool_status == "approval_required":
+                            approval_request = result.get("approval_request")
+                            tool_content = (
+                                "PAUSE: missing Python packages require user approval "
+                                f"before installation: {', '.join((approval_request.packages if approval_request else ()))}. "
+                                "Do not run pip or shell commands."
+                            )
+                            yield {
+                                "type": "tool_result",
+                                "tool": tool_name,
+                                "status": "approval_required",
+                                "stdout": "",
+                                "error": result.get("error"),
+                                "packages": list(approval_request.packages) if approval_request else [],
+                                "modules": list(approval_request.modules) if approval_request else [],
+                            }
+                            tool_latency = int((time.time() - tool_t0) * 1000)
+                            rlog.log("tool_execution", iteration=outer_iteration,
+                                     tool=tool_name,
+                                     input_summary=tool_args.get("purpose", "")[:200],
+                                     output_summary=tool_content[:200],
+                                     latency_ms=tool_latency, status=tool_status)
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": tool_content,
+                            })
+                            self._tool_loop_exit_reason = "approval_required"
+                            if approval_request is not None:
+                                yield {
+                                    "type": "package_approval_candidate",
+                                    "request": approval_request,
+                                    "error_message": result.get("error"),
+                                }
+                            yield {
+                                "type": "agent_action",
+                                "action_data": None,
+                                "reason": "approval_required",
+                                "llm_calls": llm_calls_in_cycle,
+                            }
+                            return
                         if result.get("error"):
                             tool_content += f"\n\nError: {result['error']}"
                         yield {
@@ -1665,6 +1864,7 @@ class DataAgent:
                             "status": tool_status,
                             "stdout": result.get("stdout", ""),
                             "error": result.get("error"),
+                            "sandbox_violation": result.get("sandbox_violation"),
                         }
                     elif tool_name == "inspect_source_data":
                         table_names = tool_args.get("table_names", [])

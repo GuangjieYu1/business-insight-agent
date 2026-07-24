@@ -282,6 +282,13 @@ export const InteractionEntryCard: React.FC<InteractionEntryCardProps> = memo(({
                 }
                 break;
             }
+            case 'approval': {
+                color = resolved ? theme.palette.text.secondary : theme.palette.text.primary;
+                if (resolved) {
+                    collapsedLabel = (displayText || t('interaction.requestedPackageApproval')).replace(/\s+/g, ' ').trim();
+                }
+                break;
+            }
             case 'delegate': {
                 color = resolved ? theme.palette.text.secondary : theme.palette.text.primary;
                 if (resolved) {
@@ -310,7 +317,7 @@ export const InteractionEntryCard: React.FC<InteractionEntryCardProps> = memo(({
         // click). Their truncated preview here should always stay clamped —
         // no in-place expand, to avoid duplicating the panel content.
         const isActiveAgentPause = !resolved
-            && (entry.role === 'clarify' || entry.role === 'explain' || entry.role === 'delegate');
+            && (entry.role === 'clarify' || entry.role === 'approval' || entry.role === 'explain' || entry.role === 'delegate');
 
         // Auto-clamp very long agent text bubbles. Tied to the same
         // `expanded` state as thinking — one parent click reveals both —
@@ -341,6 +348,7 @@ export const InteractionEntryCard: React.FC<InteractionEntryCardProps> = memo(({
         // than "in-progress discussion".
         const isConversational = entry.role === 'instruction'
             || entry.role === 'clarify'
+            || entry.role === 'approval'
             || entry.role === 'explain'
             || entry.role === 'delegate'
             || entry.role === 'summary';
@@ -352,7 +360,7 @@ export const InteractionEntryCard: React.FC<InteractionEntryCardProps> = memo(({
         //   explain / suggest    → primary   ("here's an answer / handoff")
         //   summary              → secondary ("agent's finding")
         //   error                → error
-        const isActiveClarify = entry.role === 'clarify' && !resolved;
+        const isActiveClarify = (entry.role === 'clarify' || entry.role === 'approval') && !resolved;
         const isActiveExplain = (entry.role === 'explain'
             || entry.role === 'delegate') && !resolved;
         const isSummary = entry.role === 'summary';
@@ -363,6 +371,7 @@ export const InteractionEntryCard: React.FC<InteractionEntryCardProps> = memo(({
         // data thread foregrounds charts/data instead of back-and-forth.
         const isResolvedPause = resolved
             && (entry.role === 'clarify'
+                || entry.role === 'approval'
                 || entry.role === 'explain'
                 || entry.role === 'delegate');
         const bubbleAccent = entry.role === 'error'
@@ -467,7 +476,7 @@ export const InteractionEntryCard: React.FC<InteractionEntryCardProps> = memo(({
                             overflow: 'hidden',
                         } : {}),
                     }}>
-                        {(entry.role === 'clarify' || entry.role === 'explain' || entry.role === 'delegate') && !resolved && (
+                        {(entry.role === 'clarify' || entry.role === 'approval' || entry.role === 'explain' || entry.role === 'delegate') && !resolved && (
                             <Box component="span" sx={{
                                 display: 'inline',
                                 fontWeight: 600,
@@ -478,6 +487,8 @@ export const InteractionEntryCard: React.FC<InteractionEntryCardProps> = memo(({
                                     ? (entry.delegateTarget === 'report_gen'
                                         ? t('interaction.delegateLabelReportGen')
                                         : t('interaction.delegateLabelDataLoading'))
+                                    : entry.role === 'approval'
+                                        ? t('interaction.approvalNeeded')
                                     : t('interaction.clarificationNeeded')})
                             </Box>
                         )}
@@ -637,6 +648,7 @@ export function getEntryGutterIcon(entry: InteractionEntry, color: string): Reac
     const variant: AgentToyVariant = (() => {
         switch (entry.role) {
             case 'clarify': return 'clarify';
+            case 'approval': return 'clarify';
             case 'explain': return 'explain';
             case 'delegate': return 'explain';
             case 'summary': return 'summary';
