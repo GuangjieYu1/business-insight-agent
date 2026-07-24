@@ -1,0 +1,208 @@
+/**
+ * Scenario tests for IdentityMigrationDialog.
+ */
+import React from 'react';
+import '@testing-library/jest-dom/vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mockApiRequest = vi.fn();
+const mockPurge = vi.fn(async () => {});
+
+vi.mock('../../../../src/app/utils', () => ({
+    getUrls: () => ({ SESSION_LIST: '/api/sessions/list' }),
+}));
+
+vi.mock('../../../../src/app/apiClient', () => ({
+    apiRequest: (...args: any[]) => mockApiRequest(...args),
+}));
+
+vi.mock('../../../../src/app/store', () => ({
+    persistor: { purge: () => mockPurge() },
+}));
+
+vi.mock('react-i18next', () => ({
+    useTranslation: () => ({
+        t: (key: string, opts?: any) => {
+            const map: Record<string, string> = {
+                'auth.migration.title': 'Import Previous Data?',
+                'auth.migration.description': `You have ${opts?.count ?? 0} workspace(s).`,
+                'auth.migration.importButton': 'Import Data',
+                'auth.migration.freshButton': 'Start Fresh',
+                'auth.migration.importing': 'Importing workspaces…',
+                'auth.migration.success': `Imported ${opts?.count ?? 0} workspace(s).`,
+                'auth.migration.failed': `Failed: ${opts?.message ?? ''}`,
+            };
+            return map[key] ?? key;
+        },
+    }),
+}));
+
+import { IdentityMigrationDialog } from '../../../../src/app/IdentityMigrationDialog';
+
+function setupAnonymousWorkspaces(count: number) {
+    mockApiRequest.mockImplementation(async (url: string) => {
+        if (url.startsWith('/api/sessions/list')) {
+            return {
+                data: {
+                    sessions: Array.from({ length: count }, (_, i) => ({ id: `ws-${i}` })),
+                },
+            };
+        }
+        return { data: {} };
+    });
+}
+
+beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    Object.defineProperty(window, 'location', {
+        configurable: true,
+        writable: true,
+        value: { href: '/' },
+    });
+});
+
+describe('Anonymous user logs in and sees migration dialog', () => {
+    it('shows the dialog when anonymous workspaces exist', async () => {
+        setupAnonymousWorkspaces(3);
+        const onDone = vi.fn();
+
+        render(<IdentityMigrationDialog oldBrowserId="abc-123" onDone={onDone} />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Import Previous Data?')).toBeInTheDocument();
+        });
+        expect(screen.getByText(/You have 3 workspace/)).toBeInTheDocument();
+        expect(screen.getByText('Import Data')).toBeInTheDocument();
+        expect(screen.getByText('Start Fresh')).toBeInTheDocument();
+    });
+
+    it('auto-closes when no anonymous workspaces exist', async () => {
+        setupAnonymousWorkspaces(0);
+        const onDone = vi.fn();
+
+        render(<IdentityMigrationDialog oldBrowserId="abc-123" onDone={onDone} />);
+
+        await waitFor(() => {
+            expect(onDone).toHaveBeenCalled();
+        });
+    });
+});
+
+describe("User clicks 'Start Fresh'", () => {
+    it('does not call cleanup-anonymous', async () => {
+        setupAnonymousWorkspaces(2);
+
+        render(<IdentityMigrationDialog oldBrowserId="abc-123" onDone={vi.fn()} />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Start Fresh')).toBeInTheDocument();
+        });
+
+        await act(async () => {
+            fireEvent.click(screen.getByText('Start Fresh'));
+        });
+
+        const calls = mockApiRequest.mock.calls.map((call: any[]) => call[0]);
+        expect(calls).not.toContain('/api/sessions/cleanup-anonymous');
+    });
+
+    it('does not call the migrate endpoint', async () => {
+        setupAnonymousWorkspaces(2);
+
+        render(<IdentityMigrationDialog oldBrowserId="abc-123" onDone={vi.fn()} />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Start Fresh')).toBeInTheDocument();
+        });
+
+        await act(async () => {
+            fireEvent.click(screen.getByText('Start Fresh'));
+        });
+
+        const calls = mockApiRequest.mock.calls.map((call: any[]) => call[0]);
+        expect(calls).not.toContain('/api/sessions/migrate');
+    });
+
+    it("never shows 'Importing workspaces…' text", async () => {
+        setupAnonymousWorkspaces(2);
+
+        render(<IdentityMigrationDialog oldBrowserId="abc-123" onDone={vi.fn()} />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Start Fresh')).toBeInTheDocument();
+        });
+
+        await act(async () => {
+            fireEvent.click(screen.getByText('Start Fresh'));
+        });
+
+        expect(screen.queryByText('Importing workspaces…')).not.toBeInTheDocument();
+    });
+
+    it('purges persisted state and navigates to home', async () => {
+        setupAnonymousWorkspaces(2);
+
+        render(<IdentityMigrationDialog oldBrowserId="abc-123" onDone={vi.fn()} />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Start Fresh')).toBeInTheDocument();
+        });
+
+        await act(async () => {
+            fireEvent.click(screen.getByText('Start Fresh'));
+        });
+
+        await waitFor(() => {
+            expect(mockPurge).toHaveBeenCalledOnce();
+            expect(window.location.href).toBe('/');
+        });
+    });
+});
+
+describe("User clicks 'Import Data'", () => {
+    it('calls migrate endpoint and shows importing state', async () => {
+        let resolveMigrate!: (value: { data: { moved: string[] } }) => void;
+        mockApiRequest.mockImplementation(async (url: string) => {
+            if (url.startsWith('/api/sessions/list')) {
+                return {
+                    data: {
+                        sessions: [{ id: 'ws-0' }, { id: 'ws-1' }],
+                    },
+                };
+            }
+            if (url === '/api/sessions/migrate') {
+                return new Promise((resolve) => {
+                    resolveMigrate = resolve;
+                });
+            }
+            if (url === '/api/sessions/cleanup-anonymous') {
+                return { data: {} };
+            }
+            return { data: {} };
+        });
+
+        render(<IdentityMigrationDialog oldBrowserId="abc-123" onDone={vi.fn()} />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Import Data')).toBeInTheDocument();
+        });
+
+        await act(async () => {
+            fireEvent.click(screen.getByText('Import Data'));
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText('Importing workspaces…')).toBeInTheDocument();
+        });
+
+        await act(async () => {
+            resolveMigrate({ data: { moved: ['ws-0', 'ws-1'] } });
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText(/Imported 2 workspace/)).toBeInTheDocument();
+        });
+    });
+});

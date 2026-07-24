@@ -1,0 +1,236 @@
+version: '1.1'
+created_at: '2026-07-14T03:12:27.854200+00:00'
+updated_at: '2026-07-14T06:47:51.706910+00:00'
+tables:
+  table_202510起降费国内数据_国航上海浦东协议_csv:
+    source_type: upload
+    filename: table_202510起降费国内数据_国航上海浦东协议_csv.parquet
+    file_type: parquet
+    created_at: '2026-07-14T03:12:27.889898+00:00'
+    content_hash: 3345067f6b12d14d40137a5f3c47d75b
+    file_size: 39501
+    last_synced: '2026-07-14T03:12:27.889898+00:00'
+    row_count: 10065
+    columns:
+    - name: scheduled_flight_date
+      dtype: string
+    - name: base_principal
+      dtype: number
+    - name: flight_number
+      dtype: string
+    - name: max_takeoff_weight
+      dtype: number
+    - name: flight_nature_type
+      dtype: string
+    - name: aircraft_type_name
+      dtype: string
+    - name: aircraft_body_type
+      dtype: string
+    - name: actual_departure_landing_time
+      dtype: string
+    original_name: 202510起降费国内数据-国航上海浦东协议.csv
+    source_file: 202510起降费国内数据-国航上海浦东协议.csv
+  d_aircraft_fee_comparison:
+    source_type: data_loader
+    filename: d_aircraft_fee_comparison.parquet
+    file_type: parquet
+    created_at: '2026-07-14T03:13:33.226988+00:00'
+    content_hash: 19a8ecd3497e5eb988777cd6d8c8343e
+    file_size: 3861
+    last_synced: '2026-07-14T03:13:33.226988+00:00'
+    row_count: 24
+    columns:
+    - name: aircraft_type_name
+      dtype: string
+    - name: avg_fee
+      dtype: integer
+    - name: flight_count
+      dtype: integer
+    - name: body_type
+      dtype: string
+  d_hourly_fee_by_body:
+    source_type: data_loader
+    filename: d_hourly_fee_by_body.parquet
+    file_type: parquet
+    created_at: '2026-07-14T05:22:30.217088+00:00'
+    content_hash: ab235b31f72af0e385404fc5fa8bc2a9
+    file_size: 3686
+    last_synced: '2026-07-14T05:22:30.217088+00:00'
+    row_count: 29
+    columns:
+    - name: hour
+      dtype: integer
+    - name: avg_fee
+      dtype: integer
+    - name: flight_count
+      dtype: integer
+    - name: body_label
+      dtype: string
+  d_weight_fee_scatter:
+    source_type: data_loader
+    filename: d_weight_fee_scatter.parquet
+    file_type: parquet
+    created_at: '2026-07-14T05:46:53.710274+00:00'
+    content_hash: 8c7ca4bda3ddd7ab797eddd3b2cc1bcd
+    file_size: 61948
+    last_synced: '2026-07-14T05:46:53.710274+00:00'
+    row_count: 9324
+    columns:
+    - name: max_takeoff_weight
+      dtype: number
+    - name: base_principal
+      dtype: number
+    - name: body_label
+      dtype: string
+  d_df:
+    source_type: data_loader
+    filename: d_df.parquet
+    file_type: parquet
+    created_at: '2026-07-14T05:50:25.596542+00:00'
+    content_hash: 8cde5b068b20a04182702e6151c05d64
+    file_size: 3742
+    last_synced: '2026-07-14T05:50:25.596542+00:00'
+    row_count: 7
+    columns:
+    - name: field_name
+      dtype: string
+    - name: effect_size
+      dtype: number
+    - name: metric_label
+      dtype: string
+    - name: strength
+      dtype: string
+  d_fn:
+    source_type: data_loader
+    filename: d_fn.parquet
+    file_type: parquet
+    created_at: '2026-07-14T06:05:44.416707+00:00'
+    content_hash: 8246b4c403a17f9a0fe49ea1828f5941
+    file_size: 5726
+    last_synced: '2026-07-14T06:05:44.416707+00:00'
+    row_count: 55
+    columns:
+    - name: flight_number
+      dtype: string
+    - name: avg_fee
+      dtype: number
+    - name: days
+      dtype: integer
+    - name: h_ratio
+      dtype: number
+    - name: n_models
+      dtype: integer
+    - name: body_label
+      dtype: string
+  d_plot_df:
+    source_type: data_loader
+    filename: d_plot_df.parquet
+    file_type: parquet
+    created_at: '2026-07-14T06:12:54.793032+00:00'
+    content_hash: dc9f77cca50de0d4ef6ce50c89395bda
+    file_size: 38618
+    last_synced: '2026-07-14T06:12:54.793032+00:00'
+    row_count: 3382
+    columns:
+    - name: scheduled_flight_date
+      dtype: string
+    - name: base_principal
+      dtype: number
+    - name: flight_number
+      dtype: string
+    - name: max_takeoff_weight
+      dtype: number
+    - name: flight_nature_type
+      dtype: string
+    - name: aircraft_type_name
+      dtype: string
+    - name: aircraft_body_type
+      dtype: string
+    - name: actual_departure_landing_time
+      dtype: string
+    - name: flight_num
+      dtype: integer
+    - name: prefix
+      dtype: integer
+    - name: base
+      dtype: string
+    - name: body_label
+      dtype: string
+  d_summary:
+    source_type: data_loader
+    filename: d_summary.parquet
+    file_type: parquet
+    created_at: '2026-07-14T06:37:29.588072+00:00'
+    content_hash: cf8ae94d48515128dba005ef1ec467e7
+    file_size: 4586
+    last_synced: '2026-07-14T06:37:29.588072+00:00'
+    row_count: 24
+    columns:
+    - name: flight_number
+      dtype: string
+    - name: type_role
+      dtype: string
+    - name: avg_fee
+      dtype: number
+    - name: days
+      dtype: integer
+    - name: share
+      dtype: number
+  d_plot_df_2:
+    source_type: data_loader
+    filename: d_plot_df_2.parquet
+    file_type: parquet
+    created_at: '2026-07-14T06:43:10.067125+00:00'
+    content_hash: 85a909e92c6bdd1a0e30d570a9595b7f
+    file_size: 38337
+    last_synced: '2026-07-14T06:43:10.067125+00:00'
+    row_count: 3343
+    columns:
+    - name: scheduled_flight_date
+      dtype: string
+    - name: base_principal
+      dtype: number
+    - name: flight_number
+      dtype: string
+    - name: max_takeoff_weight
+      dtype: number
+    - name: flight_nature_type
+      dtype: string
+    - name: aircraft_type_name
+      dtype: string
+    - name: aircraft_body_type
+      dtype: string
+    - name: actual_departure_landing_time
+      dtype: string
+    - name: flight_num
+      dtype: integer
+    - name: prefix
+      dtype: integer
+    - name: base
+      dtype: string
+    - name: body_label
+      dtype: string
+  d_d_chart:
+    source_type: data_loader
+    filename: d_d_chart.parquet
+    file_type: parquet
+    created_at: '2026-07-14T06:47:51.699318+00:00'
+    content_hash: 5cdde64a60ef156c5743a085f0f22ce9
+    file_size: 6313
+    last_synced: '2026-07-14T06:47:51.699318+00:00'
+    row_count: 62
+    columns:
+    - name: flight_number
+      dtype: string
+    - name: avg_fee
+      dtype: number
+    - name: n_days
+      dtype: integer
+    - name: body_type
+      dtype: string
+    - name: aircraft_type
+      dtype: string
+    - name: route_label
+      dtype: string
+    - name: aircraft_label
+      dtype: string

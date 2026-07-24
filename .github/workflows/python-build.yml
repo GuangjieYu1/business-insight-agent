@@ -1,0 +1,89 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://docs.github.com/actions/automating-builds-and-testing-python
+
+name: build
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set Node.js 20
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'yarn'
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        python-version: 3.12
+    - name: Install node dependencies
+      run: yarn install
+    - name: Test Business Insight backend
+      run: uv run pytest tests/insight -q
+    - name: Test Intent and Goal backend
+      run: uv run pytest tests/insight/test_goal_repositories.py tests/insight/test_goal_routes.py tests/insight/test_deterministic_goal_candidates.py -q
+    - name: Test existing Insight frontend
+      run: yarn vitest run tests/frontend/productConfig.test.ts tests/frontend/unit/insight/InsightWorkspacePane.test.tsx tests/frontend/unit/insight/insightClient.test.ts tests/frontend/unit/insight/profilingSlice.test.ts
+    - name: Test Goal Client and Slice
+      run: yarn vitest run tests/frontend/unit/insight/goalClient.test.ts tests/frontend/unit/insight/goalSlice.test.ts
+    - name: Test Goal confirmation UI
+      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx
+    - name: Test cleaning API client
+      run: yarn vitest run tests/frontend/unit/insight/cleaningClient.test.ts
+    - name: Test cleaning workspace panels
+      run: yarn vitest run tests/frontend/unit/insight/CleaningWorkspacePanel.test.tsx tests/frontend/unit/insight/VersionedCleaningWorkspacePanel.test.tsx
+    - name: Test AgentRun API and EventSource client
+      run: yarn vitest run tests/frontend/unit/insight/agentRunClient.test.ts
+    - name: Test AgentRun Redux recovery
+      run: yarn vitest run tests/frontend/unit/insight/agentRunSlice.test.ts
+    - name: Test completed AgentRun final conclusion
+      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "restores a completed run"
+    - name: Test AgentRun process drawer
+      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "renders the complete persisted analysis process"
+    - name: Test AgentRun approval handoff
+      run: yarn vitest run tests/frontend/unit/insight/AgentRunWorkspace.test.tsx -t "restores a waiting-approval run"
+    - name: Build frontend
+      run: yarn build
+    - name: Build python artifact
+      run: uv build
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-dist
+        path: dist
+
+  pypi-publish:
+    runs-on: ubuntu-latest
+    needs:
+      - build
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy]')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/data-formulator
+    permissions:
+      id-token: write
+    steps:
+      - name: Retrieve release distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist/
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

@@ -1,0 +1,176 @@
+version: '1.1'
+created_at: '2026-07-14T02:49:49.340518+00:00'
+updated_at: '2026-07-14T03:01:30.680349+00:00'
+tables:
+  table_202510起降费国内数据_国航上海浦东协议_csv:
+    source_type: upload
+    filename: table_202510起降费国内数据_国航上海浦东协议_csv.parquet
+    file_type: parquet
+    created_at: '2026-07-14T02:49:49.378407+00:00'
+    content_hash: 3345067f6b12d14d40137a5f3c47d75b
+    file_size: 39501
+    last_synced: '2026-07-14T02:49:49.378407+00:00'
+    row_count: 10065
+    columns:
+    - name: scheduled_flight_date
+      dtype: string
+    - name: base_principal
+      dtype: number
+    - name: flight_number
+      dtype: string
+    - name: max_takeoff_weight
+      dtype: number
+    - name: flight_nature_type
+      dtype: string
+    - name: aircraft_type_name
+      dtype: string
+    - name: aircraft_body_type
+      dtype: string
+    - name: actual_departure_landing_time
+      dtype: string
+    original_name: 202510起降费国内数据-国航上海浦东协议.csv
+    source_file: 202510起降费国内数据-国航上海浦东协议.csv
+  d_body_type_chart:
+    source_type: data_loader
+    filename: d_body_type_chart.parquet
+    file_type: parquet
+    created_at: '2026-07-14T02:51:24.764685+00:00'
+    content_hash: d0e4db2fdf02b613d148f02291daac1e
+    file_size: 4065
+    last_synced: '2026-07-14T02:51:24.764685+00:00'
+    row_count: 2
+    columns:
+    - name: aircraft_body_type
+      dtype: string
+    - name: average_fee
+      dtype: number
+    - name: median_fee
+      dtype: number
+    - name: flight_count
+      dtype: integer
+    - name: display_label
+      dtype: string
+  d_aircraft_fee_chart:
+    source_type: data_loader
+    filename: d_aircraft_fee_chart.parquet
+    file_type: parquet
+    created_at: '2026-07-14T02:51:33.560852+00:00'
+    content_hash: d2212e0e50145ce20b1fd7581a0e33ec
+    file_size: 4425
+    last_synced: '2026-07-14T02:51:33.560852+00:00'
+    row_count: 24
+    columns:
+    - name: aircraft_type_name
+      dtype: string
+    - name: average_fee
+      dtype: number
+    - name: flight_count
+      dtype: integer
+    - name: body_type
+      dtype: string
+    - name: body_label
+      dtype: string
+  d_feat_imp:
+    source_type: data_loader
+    filename: d_feat_imp.parquet
+    file_type: parquet
+    created_at: '2026-07-14T02:52:59.422017+00:00'
+    content_hash: 31da5888af912a4ce6dd6355fbe5a3db
+    file_size: 3101
+    last_synced: '2026-07-14T02:52:59.422017+00:00'
+    row_count: 6
+    columns:
+    - name: feature
+      dtype: string
+    - name: importance_pct
+      dtype: number
+    - name: color_group
+      dtype: string
+  d_output_variable:
+    source_type: data_loader
+    filename: d_output_variable.parquet
+    file_type: parquet
+    created_at: '2026-07-14T02:53:08.747043+00:00'
+    content_hash: 74a0cabe7e4b157b689940d811a3f330
+    file_size: 7692
+    last_synced: '2026-07-14T02:53:08.747043+00:00'
+    row_count: 3000
+    columns:
+    - name: max_takeoff_weight
+      dtype: number
+    - name: base_principal
+      dtype: number
+    - name: time_period
+      dtype: string
+  d_output_variable_2:
+    source_type: data_loader
+    filename: d_output_variable_2.parquet
+    file_type: parquet
+    created_at: '2026-07-14T02:53:23.336491+00:00'
+    content_hash: 3db20df362d8bb948d1880359770f3eb
+    file_size: 4487
+    last_synced: '2026-07-14T02:53:23.336491+00:00'
+    row_count: 18
+    columns:
+    - name: departure_hour
+      dtype: integer
+    - name: avg_fee
+      dtype: number
+    - name: flight_count
+      dtype: integer
+    - name: wide_body_pct
+      dtype: number
+    - name: peak_tag
+      dtype: string
+  d_pca_scree:
+    source_type: data_loader
+    filename: d_pca_scree.parquet
+    file_type: parquet
+    created_at: '2026-07-14T03:01:10.013701+00:00'
+    content_hash: c427e857ad79e1c42020292e0a4dcf20
+    file_size: 2916
+    last_synced: '2026-07-14T03:01:10.013701+00:00'
+    row_count: 5
+    columns:
+    - name: component
+      dtype: string
+    - name: variance_pct
+      dtype: number
+    - name: cumulative_label
+      dtype: string
+  d_pc_biplot_data:
+    source_type: data_loader
+    filename: d_pc_biplot_data.parquet
+    file_type: parquet
+    created_at: '2026-07-14T03:01:22.007873+00:00'
+    content_hash: 54fda9b4f665b6c565fba89a176fc187
+    file_size: 28313
+    last_synced: '2026-07-14T03:01:22.007873+00:00'
+    row_count: 3000
+    columns:
+    - name: PC1
+      dtype: number
+    - name: PC2
+      dtype: number
+    - name: aircraft_body_type
+      dtype: string
+    - name: body_label
+      dtype: string
+  d_loadings_heatmap:
+    source_type: data_loader
+    filename: d_loadings_heatmap.parquet
+    file_type: parquet
+    created_at: '2026-07-14T03:01:30.670336+00:00'
+    content_hash: af1c4660629c3e5698f96a72de80d8ea
+    file_size: 3460
+    last_synced: '2026-07-14T03:01:30.670336+00:00'
+    row_count: 15
+    columns:
+    - name: feature
+      dtype: string
+    - name: PC
+      dtype: string
+    - name: loading
+      dtype: number
+    - name: label
+      dtype: string

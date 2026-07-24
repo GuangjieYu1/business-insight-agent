@@ -1,0 +1,80 @@
+version: '1.1'
+created_at: '2026-07-14T02:35:07.276654+00:00'
+updated_at: '2026-07-14T02:37:25.677369+00:00'
+tables:
+  etth1_csv:
+    source_type: upload
+    filename: etth1_csv.parquet
+    file_type: parquet
+    created_at: '2026-07-14T02:35:07.336120+00:00'
+    content_hash: 0f06d5d00278040e63f0d1b4ccb15e4d
+    file_size: 265688
+    last_synced: '2026-07-14T02:35:07.336120+00:00'
+    row_count: 17420
+    columns:
+    - name: date
+      dtype: string
+    - name: HUFL
+      dtype: number
+    - name: HULL
+      dtype: number
+    - name: MUFL
+      dtype: number
+    - name: MULL
+      dtype: number
+    - name: LUFL
+      dtype: number
+    - name: LULL
+      dtype: number
+    - name: OT
+      dtype: number
+    original_name: ETTh1.csv
+    source_file: ETTh1.csv
+  d_result:
+    source_type: data_loader
+    filename: d_result.parquet
+    file_type: parquet
+    created_at: '2026-07-14T02:37:01.650788+00:00'
+    content_hash: b5093823dac35b245d0c8ae573e4ffc7
+    file_size: 19180
+    last_synced: '2026-07-14T02:37:01.650788+00:00'
+    row_count: 726
+    columns:
+    - name: date_str
+      dtype: string
+    - name: 日平均油温
+      dtype: number
+    - name: 日最低油温
+      dtype: number
+    - name: 日最高油温
+      dtype: number
+  d_result_2:
+    source_type: data_loader
+    filename: d_result_2.parquet
+    file_type: parquet
+    created_at: '2026-07-14T02:37:11.605388+00:00'
+    content_hash: 842a4055bcdace9f939ee5d8aafd1ea8
+    file_size: 27818
+    last_synced: '2026-07-14T02:37:11.605388+00:00'
+    row_count: 17420
+    columns:
+    - name: 月份
+      dtype: integer
+    - name: 油温
+      dtype: number
+  d_result_3:
+    source_type: data_loader
+    filename: d_result_3.parquet
+    file_type: parquet
+    created_at: '2026-07-14T02:37:25.673065+00:00'
+    content_hash: a45adf28ec20aeb03608b4fe8f0531fc
+    file_size: 3816
+    last_synced: '2026-07-14T02:37:25.673065+00:00'
+    row_count: 96
+    columns:
+    - name: 季节
+      dtype: string
+    - name: 小时
+      dtype: integer
+    - name: 平均油温
+      dtype: number
