@@ -40,6 +40,10 @@ DATA_FORMULATOR_HOME=/srv/business-insight-agent/data
 DISABLE_DISPLAY_KEYS=true
 DISABLE_DATA_CONNECTORS=true
 DISABLE_CUSTOM_MODELS=true
+BIA_USER_DEEPSEEK_KEYS_ENABLED=true
+BIA_USER_DEEPSEEK_API_BASE=https://api.deepseek.com/v1
+BIA_USER_DEEPSEEK_MODELS=deepseek-v4-flash,deepseek-v4-pro
+DF_ALLOWED_API_BASES=https://api.deepseek.com/v1
 BIA_REMOTE_ANALYSIS_SERVICES=[]
 ```
 
@@ -49,6 +53,9 @@ The verified server config must report:
 DISABLE_DISPLAY_KEYS=true
 DISABLE_DATA_CONNECTORS=true
 DISABLE_CUSTOM_MODELS=true
+BIA_USER_DEEPSEEK_KEYS_ENABLED=true
+BIA_USER_DEEPSEEK_API_BASE=https://api.deepseek.com/v1
+BIA_USER_DEEPSEEK_MODELS=[deepseek-v4-flash, deepseek-v4-pro]
 BIA_AZURE_WORKSPACE_BLOCKED=true
 BIA_ONLINE_CHARTIFACT_BLOCKED=true
 LITELLM_TELEMETRY_DISABLED=true
@@ -56,6 +63,7 @@ REMOTE_ANALYSIS_SERVICES=[]
 ```
 
 Do not store API keys or Alibaba Cloud AccessKeys in this repository.
+In this deployment, `DISABLE_CUSTOM_MODELS=true` still blocks arbitrary custom providers and API base URLs. The only user-editable model setting is the DeepSeek API Key in the browser UI; provider, base URL, API version, and model choices remain server-controlled.
 
 ## GitHub Actions Image Build
 

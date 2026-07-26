@@ -397,7 +397,7 @@ class DataAgentRunLedger:
             )
             return
 
-        if event_type in {'clarify', 'explain'}:
+        if event_type in {'clarify', 'explain', 'approval_required'}:
             trajectory = event.get('trajectory')
             cursor_hash = trajectory_hash(trajectory) if isinstance(trajectory, list) else None
             now = utc_now()
@@ -417,9 +417,33 @@ class DataAgentRunLedger:
                     'event_type': 'user_input_required',
                     'stage': 'waiting_user_input',
                     'interaction_type': event_type,
+                    **({'approval_packages': [_safe_token(pkg, fallback='package') for pkg in event.get('packages', [])]} if event_type == 'approval_required' else {}),
                 },
             )
             self._close()
+            return
+
+        if event_type == 'approval_status':
+            status = _safe_token(event.get('status'), fallback='unknown')
+            now = utc_now()
+            self._append_step(
+                step_type='approval',
+                title='Runtime package approval status changed',
+                status='failed' if status == 'failed' else 'completed',
+                progress_text='Runtime package approval was handled without copying package output.',
+                started_at=now,
+                completed_at=now,
+                detail={
+                    'event_type': 'approval_status',
+                    'stage': 'waiting_user_input',
+                    'approval_status': status,
+                    'approval_packages': [
+                        _safe_token(pkg.get('package'), fallback='package')
+                        for pkg in event.get('packages', [])
+                        if isinstance(pkg, dict)
+                    ],
+                },
+            )
             return
 
         if event_type == 'delegate':

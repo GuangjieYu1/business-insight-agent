@@ -20,7 +20,7 @@
 
 import React, { FC, ReactNode, useEffect, useRef, useState } from 'react';
 import {
-    Box, Collapse, IconButton, Tooltip, Typography, useTheme,
+    Box, Button, Collapse, IconButton, Tooltip, Typography, useTheme,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import SearchIcon from '@mui/icons-material/Search';
@@ -36,6 +36,7 @@ import {
     ClarificationQuestion,
     ClarificationResponse,
     DelegateTarget,
+    RuntimePackageApproval,
 } from '../components/ComponentType';
 import { renderFieldHighlights } from './InteractionEntryCard';
 
@@ -394,6 +395,98 @@ export const ClarificationPanel: FC<ClarificationPanelProps> = ({
                         )}
                     </Box>
                 ))}
+            </Box>
+        </AgentPauseShell>
+    );
+};
+
+
+// ---------------------------------------------------------------------------
+// RuntimePackageApprovalPanel
+// ---------------------------------------------------------------------------
+
+interface RuntimePackageApprovalPanelProps {
+    approval: RuntimePackageApproval;
+    onApprove: () => void;
+    onReject: () => void;
+    onCancel: () => void;
+}
+
+export const RuntimePackageApprovalPanel: FC<RuntimePackageApprovalPanelProps> = ({
+    approval,
+    onApprove,
+    onReject,
+    onCancel,
+}) => {
+    const theme = useTheme();
+    const { t } = useTranslation();
+    const packages = (approval.packages || []).filter(Boolean);
+
+    return (
+        <AgentPauseShell
+            icon={<AgentToyIcon
+                variant="clarify"
+                sx={{ fontSize: 16, color: theme.palette.warning.main }}
+            />}
+            accentColor={theme.palette.warning.main}
+            title={t('chartRec.runtimePackageApprovalTitle')}
+            minimizedPreview={packages.join(', ')}
+            dismissTooltip={t('chartRec.runtimePackageCancel')}
+            minimizeTooltip={t('chartRec.minimizeClarification')}
+            expandTooltip={t('chartRec.expandClarification')}
+            onCancel={onCancel}
+            resetKey={`${approval.id}|${packages.join('|')}`}
+        >
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px', pb: '8px', pl: '20px', pr: '4px' }}>
+                <Typography sx={{ fontSize: 12, color: theme.palette.text.primary, lineHeight: 1.5 }}>
+                    {t('chartRec.runtimePackageApprovalIntro')}
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {packages.map(pkg => (
+                        <Typography
+                            key={pkg}
+                            component="span"
+                            sx={{
+                                px: '7px', py: '3px', borderRadius: '999px',
+                                fontSize: 11, fontWeight: 600,
+                                color: theme.palette.warning.dark,
+                                bgcolor: alpha(theme.palette.warning.main, 0.12),
+                                border: `1px solid ${alpha(theme.palette.warning.main, 0.22)}`,
+                            }}
+                        >
+                            {pkg}
+                        </Typography>
+                    ))}
+                </Box>
+                <Typography sx={{ fontSize: 11, color: theme.palette.text.secondary, lineHeight: 1.5 }}>
+                    {t('chartRec.runtimePackageApprovalSource', {
+                        source: approval.source || 'PyPI binary wheels',
+                        target: approval.installTarget || 'DATA_FORMULATOR_HOME/runtime-python',
+                    })}
+                </Typography>
+                <Typography sx={{ fontSize: 11, color: theme.palette.warning.dark, lineHeight: 1.5 }}>
+                    {t('chartRec.runtimePackageApprovalRisk')}
+                </Typography>
+                <Box sx={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <Button
+                        size="small"
+                        variant="contained"
+                        color="warning"
+                        onClick={onApprove}
+                        sx={{ textTransform: 'none', fontSize: 11, py: 0.25 }}
+                    >
+                        {t('chartRec.runtimePackageApprove')}
+                    </Button>
+                    <Button
+                        size="small"
+                        variant="outlined"
+                        color="inherit"
+                        onClick={onReject}
+                        sx={{ textTransform: 'none', fontSize: 11, py: 0.25 }}
+                    >
+                        {t('chartRec.runtimePackageReject')}
+                    </Button>
+                </Box>
             </Box>
         </AgentPauseShell>
     );

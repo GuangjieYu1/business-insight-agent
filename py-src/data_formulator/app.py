@@ -53,6 +53,9 @@ from data_formulator.insight.egress import (
     configure_remote_analysis_registry,
     enforce_bia_workspace_policy,
 )
+from data_formulator.insight.deepseek_user_models import (
+    build_bia_user_deepseek_frontend_config,
+)
 
 # Create Flask app (lightweight, no heavy imports yet)
 app = Flask(__name__, static_url_path='', static_folder=os.path.join(APP_ROOT, "dist"))
@@ -321,6 +324,7 @@ def get_app_config():
         "AVAILABLE_LANGUAGES": args.get('available_languages', ['en', 'zh']),
         **brand.as_frontend_config(),
         **build_egress_frontend_config(product_mode=brand.mode.value),
+        **build_bia_user_deepseek_frontend_config(product_mode=brand.mode.value),
     }
 
     from data_formulator.auth.identity import is_local_mode

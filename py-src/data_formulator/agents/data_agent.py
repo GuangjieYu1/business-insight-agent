@@ -395,6 +395,7 @@ class DataAgent:
         self.language_instruction = language_instruction
         self.max_iterations = max_iterations
         self.max_repair_attempts = max_repair_attempts
+        self._identity_id = identity_id
 
         from data_formulator.agents.reasoning_log import (
             ReasoningLogger, _NullReasoningLogger,
@@ -519,12 +520,22 @@ class DataAgent:
                 action = None
                 action_reason = "ok"
                 action_error = ""
-                for event in self._get_next_action(trajectory, input_tables, outer_iteration=iteration):
+                self._runtime_completed_step_count = len(completed_steps)
+                for event in self._get_next_action(
+                    trajectory,
+                    input_tables,
+                    outer_iteration=iteration,
+                ):
                     if event.get("type") == "agent_action":
                         action = event.get("action_data")
                         action_reason = event.get("reason", "ok")
                         action_error = event.get("error_message", "")
                         total_llm_calls += event.get("llm_calls", 0)
+                    elif event.get("type") == "approval_required":
+                        final_status = "approval_required"
+                        yield event
+                        self._log_session_end(rlog, final_status, iteration, total_llm_calls, session_start_time)
+                        return
                     else:
                         yield event
                 logger.info("[DataAgent] iteration %d total=%.2fs reason=%s",
@@ -744,11 +755,25 @@ class DataAgent:
                     )
                     total_llm_calls += viz_result.get("repair_llm_calls", 0)
 
+                    if viz_result["status"] == "approval_required":
+                        approval_event = viz_result.get("approval_event") or self._runtime_package_approval_event(
+                            missing_info=viz_result,
+                            trajectory=trajectory,
+                            completed_step_count=len(completed_steps),
+                            tool="visualize",
+                            iteration=iteration,
+                        )
+                        final_status = "approval_required"
+                        rlog.log("action_execution", action="visualize", status="approval_required", iteration=iteration)
+                        yield approval_event
+                        self._log_session_end(rlog, final_status, iteration, total_llm_calls, session_start_time)
+                        return
+
                     if viz_result["status"] != "ok":
                         error_msg = viz_result.get("error_message", "Unknown error")
                         rlog.log("action_execution", action="visualize", status="error",
                                  iteration=iteration, error=error_msg)
-                        observation = f"[OBSERVATION – Step {len(completed_steps) + 1} FAILED]\n\nError: {error_msg}"
+                        observation = f"[OBSERVATION - Step {len(completed_steps) + 1} FAILED]\n\nError: {error_msg}"
                         trajectory.append({"role": "user", "content": observation})
                         yield self._error_event(iteration, error_msg, display_instruction=display_instruction)
                         continue
@@ -991,6 +1016,9 @@ class DataAgent:
 
         rlog = self._reasoning_log
         repair_llm_calls = 0
+        if viz_result["status"] == "approval_required":
+            viz_result["repair_llm_calls"] = repair_llm_calls
+            return viz_result
         attempt = 0
         while viz_result["status"] != "ok" and attempt < self.max_repair_attempts:
             attempt += 1
@@ -1013,6 +1041,8 @@ class DataAgent:
                 messages, input_tables,
                 outer_iteration=outer_iteration,
             ):
+                if evt.get("type") == "approval_required":
+                    return {"status": "approval_required", "approval_event": evt, "repair_llm_calls": repair_llm_calls}
                 if evt.get("type") == "agent_action":
                     repair_action = evt.get("action_data")
                     repair_llm_calls += evt.get("llm_calls", 0)
@@ -1084,6 +1114,12 @@ class DataAgent:
                         capture_code, allowed_objects, workspace_path
                     )
 
+            if raw.get("status") == "approval_required":
+                return {
+                    "status": "approval_required",
+                    "missing_imports": raw.get("missing_imports") or [],
+                    "packages": raw.get("packages") or [],
+                }
             if raw.get("status") == "ok":
                 allowed = raw.get("allowed_objects") or {}
                 if not isinstance(allowed, dict):
@@ -1096,10 +1132,17 @@ class DataAgent:
                     stdout = stdout[:8000] + "\n... (truncated)"
                 return {"status": "ok", "stdout": stdout}
             else:
+                if raw.get("missing_imports"):
+                    return {
+                        "status": "approval_required",
+                        "missing_imports": raw.get("missing_imports") or [],
+                        "packages": raw.get("packages") or [],
+                    }
                 return {
                     "status": "error",
                     "error": raw.get("error_message", raw.get("content", "Unknown error")),
                     "stdout": "",
+                    **({"sandbox_violation": raw.get("sandbox_violation")} if raw.get("sandbox_violation") else {}),
                 }
         except Exception as e:
             logger.error("[DataAgent] Sandbox execution error", exc_info=e)
@@ -1140,9 +1183,20 @@ class DataAgent:
                 output_variable=output_variable,
             )
 
+            if execution_result['status'] == 'approval_required':
+                return {
+                    "status": "approval_required",
+                    "missing_imports": execution_result.get("missing_imports") or [],
+                    "packages": execution_result.get("packages") or [],
+                }
+
             if execution_result['status'] != 'ok':
                 error_message = execution_result.get('content', 'Unknown error')
-                return {"status": "error", "error_message": str(error_message)}
+                return {
+                    "status": "error",
+                    "error_message": str(error_message),
+                    **({"sandbox_violation": execution_result.get("sandbox_violation")} if execution_result.get("sandbox_violation") else {}),
+                }
 
             full_df = execution_result['content']
             row_count = len(full_df)
@@ -1491,6 +1545,40 @@ class DataAgent:
             primary_tables,
         )
 
+    def _runtime_package_approval_event(
+        self,
+        *,
+        missing_info: dict[str, Any],
+        trajectory: list[dict],
+        completed_step_count: int,
+        tool: str,
+        iteration: int,
+    ) -> dict[str, Any]:
+        from data_formulator.sandbox.runtime_packages import create_runtime_package_approval
+
+        workspace_id = getattr(getattr(self.workspace, "confined_root", None), "root", None)
+        workspace_id = getattr(workspace_id, "name", "workspace")
+        approval = create_runtime_package_approval(
+            identity_id=self._identity_id or "anonymous",
+            workspace_id=workspace_id,
+            packages=list(missing_info.get("packages") or []),
+            import_names=list(missing_info.get("missing_imports") or []),
+            trajectory=self._strip_images(trajectory),
+            completed_step_count=completed_step_count,
+        )
+        return {
+            "type": "approval_required",
+            "iteration": iteration,
+            "tool": tool,
+            "approval": approval.public_payload(),
+            "packages": approval.packages,
+            "missing_imports": approval.import_names,
+            "trajectory": approval.trajectory,
+            "completed_step_count": approval.completed_step_count,
+            "message": "Additional Python libraries are required before this sandbox code can continue.",
+            "message_code": "agent.runtimePackageApprovalRequired",
+        }
+
     # ------------------------------------------------------------------
     # LLM interaction (with internal tool-calling loop)
     # ------------------------------------------------------------------
@@ -1540,9 +1628,10 @@ class DataAgent:
             yield from self._tool_loop(
                 messages, max_tool_rounds, max_json_retries, json_retries,
                 llm_calls_in_cycle, rlog, input_tables, outer_iteration,
+                getattr(self, "_runtime_completed_step_count", 0),
             )
 
-            if self._tool_loop_exit_reason == "tool_rounds_exhausted":
+            if self._tool_loop_exit_reason in {"tool_rounds_exhausted", "approval_required"}:
                 saved = explore_session.save_namespace(ns_dir, ws_path)
                 if saved:
                     logger.info("[DataAgent] Saved explore namespace to %s", ns_dir)
@@ -1553,6 +1642,7 @@ class DataAgent:
         self,
         messages, max_tool_rounds, max_json_retries, json_retries,
         llm_calls_in_cycle, rlog, input_tables, outer_iteration,
+        completed_step_count,
     ):
         """Inner tool-calling loop, extracted so _get_next_action can wrap
         it in a SandboxSession context manager."""
@@ -1655,16 +1745,33 @@ class DataAgent:
                             tool_args.get("code", ""),
                             input_tables or [],
                         )
+                        if result.get("status") == "approval_required":
+                            self._tool_loop_exit_reason = "approval_required"
+                            yield self._runtime_package_approval_event(
+                                missing_info=result,
+                                trajectory=messages,
+                                completed_step_count=completed_step_count,
+                                tool=tool_name,
+                                iteration=outer_iteration,
+                            )
+                            return
                         tool_content = result.get("stdout", "")
                         tool_status = result.get("status", "ok")
                         if result.get("error"):
                             tool_content += f"\n\nError: {result['error']}"
+                        if result.get("sandbox_violation"):
+                            tool_content += (
+                                "\n\nSandbox safety block: "
+                                + result["sandbox_violation"].get("message", "Blocked by sandbox policy.")
+                                + " Please continue with safe local dataframe operations."
+                            )
                         yield {
                             "type": "tool_result",
                             "tool": tool_name,
                             "status": tool_status,
                             "stdout": result.get("stdout", ""),
                             "error": result.get("error"),
+                            **({"sandbox_violation": result.get("sandbox_violation")} if result.get("sandbox_violation") else {}),
                         }
                     elif tool_name == "inspect_source_data":
                         table_names = tool_args.get("table_names", [])

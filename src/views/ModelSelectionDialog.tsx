@@ -5,7 +5,7 @@ import React, { useEffect, useState } from 'react';
 import '../scss/App.scss';
 
 import { useDispatch, useSelector } from "react-redux";
-import { 
+import {
     DataFormulatorState,
     dfActions,
     ModelConfig,
@@ -144,9 +144,41 @@ export const ModelSelectionButton: React.FC<{}> = ({ }) => {
     }, [globalModels]);
 
 
-    let modelExists = models.some(m => 
-        m.endpoint == newEndpoint && m.model == newModel && m.api_base == newApiBase 
-        && m.api_key == newApiKey && m.api_version == newApiVersion);
+    const isBusinessInsight = serverConfig.APP_PRODUCT_MODE === 'business_insight';
+    const deepSeekModels = serverConfig.BIA_USER_DEEPSEEK_MODELS?.length
+        ? serverConfig.BIA_USER_DEEPSEEK_MODELS
+        : ['deepseek-v4-flash', 'deepseek-v4-pro'];
+    const deepSeekApiBase = serverConfig.BIA_USER_DEEPSEEK_API_BASE || 'https://api.deepseek.com/v1';
+    const shouldShowDeepSeekEntry = isBusinessInsight && serverConfig.BIA_USER_DEEPSEEK_KEYS_ENABLED;
+    const shouldShowGenericCustomEntry = !serverConfig.DISABLE_CUSTOM_MODELS && !shouldShowDeepSeekEntry;
+
+    useEffect(() => {
+        if (!shouldShowDeepSeekEntry) return;
+        const firstDeepSeekModel = deepSeekModels[0] || '';
+        if (!deepSeekModels.includes(newModel)) {
+            setNewModel(firstDeepSeekModel);
+        }
+        if (newEndpoint !== 'openai') {
+            setNewEndpoint('openai');
+        }
+        if (newApiBase !== deepSeekApiBase) {
+            setNewApiBase(deepSeekApiBase);
+        }
+        if (newApiVersion !== '') {
+            setNewApiVersion('');
+        }
+    }, [shouldShowDeepSeekEntry, deepSeekApiBase, deepSeekModels.join('|')]);
+
+    const pendingEndpoint = shouldShowDeepSeekEntry ? 'openai' : newEndpoint;
+    const pendingModel = shouldShowDeepSeekEntry && !deepSeekModels.includes(newModel)
+        ? (deepSeekModels[0] || '')
+        : newModel;
+    const pendingApiBase = shouldShowDeepSeekEntry ? deepSeekApiBase : newApiBase;
+    const pendingApiVersion = shouldShowDeepSeekEntry ? '' : newApiVersion;
+
+    let modelExists = models.some(m =>
+        m.endpoint == pendingEndpoint && m.model == pendingModel && m.api_base == pendingApiBase
+        && m.api_key == newApiKey.trim() && (m.api_version || '') == pendingApiVersion);
 
     let testModel = (model: ModelConfig) => {
         updateModelStatus(model, 'testing', "");
@@ -168,7 +200,9 @@ export const ModelSelectionButton: React.FC<{}> = ({ }) => {
             });
     }
 
-    let readyToTest = newModel && (newApiKey || newApiBase);
+    let readyToTest = shouldShowDeepSeekEntry
+        ? Boolean(pendingModel && newApiKey.trim())
+        : Boolean(newModel && (newApiKey || newApiBase));
 
     const inputSx = {
         '& .MuiOutlinedInput-root': {
@@ -183,7 +217,154 @@ export const ModelSelectionButton: React.FC<{}> = ({ }) => {
         '& .MuiOutlinedInput-input': { px: 1, py: 0 },
     };
 
-    let newModelEntry = <TableRow
+    const buildPendingModel = (): ModelConfig => {
+        const endpoint = pendingEndpoint;
+        const modelName = pendingModel;
+        const apiKey = newApiKey.trim();
+        const apiBase = pendingApiBase;
+        const apiVersion = pendingApiVersion;
+        const idString = `${endpoint}-${modelName}-${apiKey}-${apiBase}-${apiVersion}`;
+        return {
+            endpoint,
+            model: modelName,
+            api_key: apiKey,
+            api_base: apiBase,
+            api_version: apiVersion,
+            id: simpleHash(idString),
+        };
+    };
+
+    const resetNewModelFields = () => {
+        setNewEndpoint(shouldShowDeepSeekEntry ? 'openai' : '');
+        setNewModel(shouldShowDeepSeekEntry ? (deepSeekModels[0] || '') : '');
+        setNewApiKey('');
+        setNewApiBase(shouldShowDeepSeekEntry ? deepSeekApiBase : '');
+        setNewApiVersion('');
+    };
+
+    const testAndAssignModel = (model: ModelConfig) => {
+        updateModelStatus(model, 'testing', '');
+        apiRequest(getUrls().TEST_MODEL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model }),
+        })
+            .then(({ data }) => {
+                updateModelStatus(model, 'ok', data.message || '');
+                setTempSelectedModelId(model.id);
+            }).catch((error) => {
+                const msg = error instanceof ApiRequestError
+                    ? error.apiError.message
+                    : error.message;
+                updateModelStatus(model, 'error', msg);
+            });
+    };
+
+    const addPendingModel = (event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        const model = buildPendingModel();
+        dispatch(dfActions.addModel(model));
+        testAndAssignModel(model);
+        resetNewModelFields();
+    };
+
+    const renderAddButton = () => (
+        <Tooltip title={modelExists ? t('model.providerModelExists') : t('model.addAndTestModel')}>
+            <span>
+                <IconButton
+                    aria-label={t('model.addAndTestModel')}
+                    color={modelExists ? 'error' : 'primary'}
+                    disabled={!readyToTest || modelExists}
+                    size="small"
+                    sx={{ cursor: modelExists ? 'help' : 'pointer', p: 0.25 }}
+                    onClick={addPendingModel}
+                >
+                    <AddCircleIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+            </span>
+        </Tooltip>
+    );
+
+    const deepSeekModelEntry = <TableRow
+        key="new-deepseek-model-entry"
+        sx={{ '&:last-child td, &:last-child th': { border: 0 }, '& td': { py: 1 } }}
+    >
+        <TableCell align="left">
+            <TextField
+                select
+                size="small"
+                fullWidth
+                variant="outlined"
+                value={pendingModel}
+                onChange={(event) => setNewModel(event.target.value)}
+                sx={inputSx}
+                slotProps={{ input: { 'aria-label': t('model.deepSeekModelAria') } }}
+            >
+                {deepSeekModels.map(modelName => (
+                    <MenuItem key={modelName} value={modelName} sx={{ fontSize: '0.75rem' }}>
+                        {modelName}
+                    </MenuItem>
+                ))}
+            </TextField>
+        </TableCell>
+        <TableCell align="left">
+            <TextField
+                fullWidth
+                size="small"
+                type={showKeys ? 'text' : 'password'}
+                variant="outlined"
+                sx={inputSx}
+                placeholder={t('model.deepSeekApiKeyPlaceholder')}
+                value={newApiKey}
+                onChange={(event) => setNewApiKey(event.target.value)}
+                autoComplete="off"
+                inputProps={{ autoComplete: 'off', 'data-form-type': 'other' }}
+            />
+        </TableCell>
+        <TableCell align="left">
+            <TextField
+                size="small"
+                fullWidth
+                disabled
+                variant="outlined"
+                sx={inputSx}
+                value={t('model.deepSeekProviderValue')}
+            />
+        </TableCell>
+        <TableCell align="left">
+            <TextField
+                size="small"
+                fullWidth
+                disabled
+                variant="outlined"
+                sx={inputSx}
+                value={deepSeekApiBase}
+            />
+        </TableCell>
+        <TableCell align="left">
+            <TextField
+                size="small"
+                fullWidth
+                disabled
+                variant="outlined"
+                sx={inputSx}
+                value=""
+                placeholder={t('model.notApplicable')}
+            />
+        </TableCell>
+        <TableCell align="left">
+            {renderAddButton()}
+        </TableCell>
+        <TableCell align="right">
+            <Tooltip title={t('model.clear')}>
+                <IconButton size="small" sx={{ p: 0.25 }} onClick={(event) => { event.stopPropagation(); resetNewModelFields(); }}>
+                    <ClearIcon sx={{ fontSize: 14 }} />
+                </IconButton>
+            </Tooltip>
+        </TableCell>
+    </TableRow>;
+
+    const genericModelEntry = <TableRow
         key={`new-model-entry`}
         sx={{ '&:last-child td, &:last-child th': { border: 0 }, '& td': { py: 1 } }}
     >
@@ -203,12 +384,12 @@ export const ModelSelectionButton: React.FC<{}> = ({ }) => {
             />
         </TableCell>
         <TableCell align="left">
-            <TextField fullWidth size="small" type={showKeys ? "text" : "password"} 
+            <TextField fullWidth size="small" type={showKeys ? "text" : "password"}
                 variant="outlined"
                 sx={inputSx}
                 placeholder={t('model.optionalKeylessEndpoint')}
-                value={newApiKey}  
-                onChange={(event: any) => { setNewApiKey(event.target.value); }} 
+                value={newApiKey}
+                onChange={(event: any) => { setNewApiKey(event.target.value); }}
                 autoComplete='off'
                 inputProps={{ autoComplete: 'off', 'data-form-type': 'other' }}
             />
@@ -250,8 +431,8 @@ export const ModelSelectionButton: React.FC<{}> = ({ }) => {
                 variant="outlined"
                 placeholder={t('model.optional')}
                 sx={inputSx}
-                value={newApiBase}  
-                onChange={(event: any) => { setNewApiBase(event.target.value); }} 
+                value={newApiBase}
+                onChange={(event: any) => { setNewApiBase(event.target.value); }}
                 autoComplete='off'
             />
         </TableCell>
@@ -259,78 +440,36 @@ export const ModelSelectionButton: React.FC<{}> = ({ }) => {
             <TextField size="small" type="text" fullWidth
                 variant="outlined"
                 sx={inputSx}
-                value={newApiVersion}  onChange={(event: any) => { setNewApiVersion(event.target.value); }} 
+                value={newApiVersion} onChange={(event: any) => { setNewApiVersion(event.target.value); }}
                 autoComplete='off'
                 placeholder={t('model.optional')}
             />
         </TableCell>
         <TableCell align="left">
-            <Tooltip title={modelExists ? t('model.providerModelExists') : t('model.addAndTestModel')}>
-                <span>  
-                    <IconButton color={modelExists ? 'error' : 'primary'}
-                        disabled={!readyToTest}
-                        size="small"
-                        sx={{ cursor: modelExists ? 'help' : 'pointer', p: 0.25 }}
-                        onClick={(event) => {
-                            event.stopPropagation()
-
-                            let endpoint = newEndpoint;
-
-                            const idString = `${endpoint}-${newModel}-${newApiKey}-${newApiBase}-${newApiVersion}`;
-                            let id = simpleHash(idString);
-
-                            let model = {endpoint, model: newModel, api_key: newApiKey, api_base: newApiBase, api_version: newApiVersion, id: id};
-
-                            dispatch(dfActions.addModel(model));
-
-                            const testAndAssignModel = (model: ModelConfig) => {
-                                updateModelStatus(model, 'testing', "");
-                                apiRequest(getUrls().TEST_MODEL, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ model }),
-                                })
-                                    .then(({ data }) => {
-                                        updateModelStatus(model, 'ok', data.message || "");
-                                        setTempSelectedModelId(id);
-                                    }).catch((error) => {
-                                        const msg = error instanceof ApiRequestError
-                                            ? error.apiError.message
-                                            : error.message;
-                                        updateModelStatus(model, 'error', msg);
-                                    });
-                            };
-
-                            testAndAssignModel(model); 
-                            
-                            setNewEndpoint("");
-                            setNewModel("");
-                            setNewApiKey("");
-                            setNewApiBase("");
-                            setNewApiVersion("");
-                        }}>
-                        <AddCircleIcon sx={{ fontSize: 18 }} />
-                    </IconButton>
-                </span>
-            </Tooltip>
+            {renderAddButton()}
         </TableCell>
         <TableCell align="right">
             <Tooltip title={t('model.clear')}>
-                <IconButton size="small" sx={{ p: 0.25 }}
-                    onClick={(event) => {
-                        event.stopPropagation()
-                        setNewEndpoint("");
-                        setNewModel("");
-                        setNewApiKey("");
-                        setNewApiBase("");
-                        setNewApiVersion("");
-                    }}>
+                <IconButton size="small" sx={{ p: 0.25 }} onClick={(event) => { event.stopPropagation(); resetNewModelFields(); }}>
                     <ClearIcon sx={{ fontSize: 14 }} />
                 </IconButton>
             </Tooltip>
         </TableCell>
+    </TableRow>;
 
-    </TableRow>
+    let newModelEntry = shouldShowDeepSeekEntry
+        ? deepSeekModelEntry
+        : shouldShowGenericCustomEntry
+            ? genericModelEntry
+            : null;
+    const isDeepSeekUserModel = (model: ModelConfig) => (
+        shouldShowDeepSeekEntry
+        && deepSeekModels.includes(model.model)
+        && (model.api_base || '').replace(/\/$/, '') === deepSeekApiBase
+    );
+    const visibleUserModels = shouldShowDeepSeekEntry
+        ? models.filter(isDeepSeekUserModel)
+        : models;
 
     /** Render a single model row. isGlobal controls delete button and key display. */
     const renderModelRow = (model: ModelConfig, isGlobal: boolean) => {
@@ -412,12 +551,12 @@ export const ModelSelectionButton: React.FC<{}> = ({ }) => {
                             : model.api_key
                                 ? (showKeys
                                     ? <Box component="span" sx={{ fontSize: '0.5rem', fontFamily: 'monospace', wordBreak: 'break-all', whiteSpace: 'normal', lineHeight: 1.3 }}>{model.api_key}</Box>
-                                    : <Box component="span" sx={{ color: 'text.disabled' }}>••••••••••</Box>)
+                                    : <Box component="span" sx={{ color: 'text.disabled' }}>********</Box>)
                                 : <Box component="span" sx={{ color: 'text.disabled' }}>{t('model.none')}</Box>
                         }
                     </TableCell>
                     <TableCell align="left">
-                        {model.endpoint}
+                        {isDeepSeekUserModel(model) ? t('model.deepSeekProviderValue') : model.endpoint}
                     </TableCell>
                     <TableCell align="left">
                         {isGlobal
@@ -522,13 +661,13 @@ export const ModelSelectionButton: React.FC<{}> = ({ }) => {
             <TableBody>
                 {/* Server-configured models first, then user-added models. */}
                 {globalModels.map(model => renderModelRow(model, true))}
-                {models.map(model => renderModelRow(model, false))}
+                {visibleUserModels.map(model => renderModelRow(model, false))}
                 {newModelEntry}
             </TableBody>
         </Table>
     </TableContainer>
 
-    const allModels = [...globalModels, ...models];
+    const allModels = [...globalModels, ...visibleUserModels];
 
     // A model is "ready" to use when it's been verified ('ok') or when it's a
     // server-configured model in 'unknown' state (trusted by default).
@@ -554,8 +693,8 @@ export const ModelSelectionButton: React.FC<{}> = ({ }) => {
                 {selectedReady ? selectedModelName : t('model.selectModels')}
             </Button>
         </Tooltip>
-        <Dialog 
-            maxWidth="lg" 
+        <Dialog
+            maxWidth="lg"
             open={modelDialogOpen}
             onClose={(event, reason) => {
                 if (reason !== 'backdropClick') {
@@ -566,26 +705,26 @@ export const ModelSelectionButton: React.FC<{}> = ({ }) => {
             <DialogTitle sx={{display: "flex",  alignItems: "center"}}>{t('model.selectModel')}</DialogTitle>
             <DialogContent >
             <Box sx={{
-                    display: 'flex', 
+                    display: 'flex',
                     color: 'text.secondary',
-                    alignItems: 'flex-start', 
+                    alignItems: 'flex-start',
                     mb: 2,
                     p: 1.5,
                     backgroundColor: alpha(theme.palette.info.main, 0.08),
                 }}>
                     <Box>
                         <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
-                            • {t('model.recommendedModelTip')}
+                            - {shouldShowDeepSeekEntry ? t('model.deepSeekRestrictedTip') : t('model.recommendedModelTip')}
                         </Typography>
                         <Typography variant="caption" component="div" sx={{ lineHeight: 1.6, mt: 0.5 }}>
-                            • {t('model.litellmNote').split('.')[0]}. <a href="https://docs.litellm.ai/docs/" target="_blank" rel="noopener noreferrer">{t('model.seeDocs')}</a>.
-                            {t('model.openaiProviderTip')}
+                            - {shouldShowDeepSeekEntry
+                                ? t('model.deepSeekLocalStorageTip')
+                                : <>{t('model.litellmNote').split('.')[0]}. <a href="https://docs.litellm.ai/docs/" target="_blank" rel="noopener noreferrer">{t('model.seeDocs')}</a>. {t('model.openaiProviderTip')}</>}
                         </Typography>
-                        
                     </Box>
                 </Box>
                 {modelTable}
-                
+
             </DialogContent>
             <DialogActions>
                 {!serverConfig.DISABLE_DISPLAY_KEYS && (

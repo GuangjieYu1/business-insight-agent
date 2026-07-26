@@ -63,7 +63,7 @@ export type DelegateTarget = 'data_loading' | 'report_gen';
 export interface InteractionEntry {
     from: Actor;
     to: Actor;
-    role: 'prompt' | 'clarify' | 'instruction' | 'summary' | 'error' | 'explain' | 'delegate';
+    role: 'prompt' | 'clarify' | 'instruction' | 'summary' | 'error' | 'explain' | 'delegate' | 'runtime_approval';
     plan?: string; // agent's reasoning / thought for this action
     content: string;
     displayContent?: string;
@@ -79,12 +79,24 @@ export interface InteractionEntry {
     timestamp?: number;
 }
 
+
+export interface RuntimePackageApproval {
+    id: string;
+    packages: string[];
+    importNames?: string[];
+    expiresAt?: string;
+    source?: string;
+    installTarget?: string;
+    risk?: string;
+}
+
 export type DeriveStatus = 'running' | 'clarifying' | 'completed' | 'error' | 'interrupted';
 
 export interface PendingClarification {
     trajectory: any[];
     completedStepCount: number;
     lastCreatedTableId: string | null;
+    runtimeApproval?: RuntimePackageApproval | null;
 }
 
 export interface DraftNode {
