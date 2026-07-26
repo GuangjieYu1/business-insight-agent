@@ -310,7 +310,7 @@ export const InteractionEntryCard: React.FC<InteractionEntryCardProps> = memo(({
         // click). Their truncated preview here should always stay clamped —
         // no in-place expand, to avoid duplicating the panel content.
         const isActiveAgentPause = !resolved
-            && (entry.role === 'clarify' || entry.role === 'explain' || entry.role === 'delegate');
+            && (entry.role === 'clarify' || entry.role === 'explain' || entry.role === 'delegate' || entry.role === 'runtime_approval');
 
         // Auto-clamp very long agent text bubbles. Tied to the same
         // `expanded` state as thinking — one parent click reveals both —
@@ -343,7 +343,7 @@ export const InteractionEntryCard: React.FC<InteractionEntryCardProps> = memo(({
             || entry.role === 'clarify'
             || entry.role === 'explain'
             || entry.role === 'delegate'
-            || entry.role === 'summary';
+            || entry.role === 'summary' || entry.role === 'runtime_approval';
         // Bubble chrome stays close to neutral, but the special states earn
         // a soft tinted fill in their per-variant semantic hue. The hues
         // here match `AgentPausePanel` so a paused entry and its panel
@@ -352,7 +352,7 @@ export const InteractionEntryCard: React.FC<InteractionEntryCardProps> = memo(({
         //   explain / suggest    → primary   ("here's an answer / handoff")
         //   summary              → secondary ("agent's finding")
         //   error                → error
-        const isActiveClarify = entry.role === 'clarify' && !resolved;
+        const isActiveClarify = (entry.role === 'clarify' || entry.role === 'runtime_approval') && !resolved;
         const isActiveExplain = (entry.role === 'explain'
             || entry.role === 'delegate') && !resolved;
         const isSummary = entry.role === 'summary';
@@ -364,7 +364,7 @@ export const InteractionEntryCard: React.FC<InteractionEntryCardProps> = memo(({
         const isResolvedPause = resolved
             && (entry.role === 'clarify'
                 || entry.role === 'explain'
-                || entry.role === 'delegate');
+                || entry.role === 'delegate' || entry.role === 'runtime_approval');
         const bubbleAccent = entry.role === 'error'
             ? theme.palette.error.main
             : isSummary

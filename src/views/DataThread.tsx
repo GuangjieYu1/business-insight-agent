@@ -908,7 +908,7 @@ let SingleThreadGroupView: FC<{
                 // delegate; all three shape the timeline the
                 // same way (an attention row above the input box).
                 const pauseEntry = d.derive.trigger.interaction
-                    ?.filter(e => e.role === 'clarify' || e.role === 'explain' || e.role === 'delegate').pop();
+                    ?.filter(e => e.role === 'clarify' || e.role === 'explain' || e.role === 'delegate' || e.role === 'runtime_approval').pop();
                 ids.set(d.derive.trigger.tableId, { question: pauseEntry?.content || '' });
             }
         }
@@ -1266,13 +1266,13 @@ let SingleThreadGroupView: FC<{
             // multiple rounds collapses to one trace.
             const isPauseRole = entry.role === 'clarify'
                 || entry.role === 'explain'
-                || entry.role === 'delegate';
+                || entry.role === 'delegate' || entry.role === 'runtime_approval';
             if (isPauseRole && entry.from !== 'user') {
                 const pairs: { agentEntry: InteractionEntry; userEntry: InteractionEntry }[] = [];
                 let cursor = ei;
                 while (cursor < entries.length) {
                     const ag = entries[cursor];
-                    const agIsPause = ag.role === 'clarify' || ag.role === 'explain' || ag.role === 'delegate';
+                    const agIsPause = ag.role === 'clarify' || ag.role === 'explain' || ag.role === 'delegate' || ag.role === 'runtime_approval';
                     if (!agIsPause || ag.from === 'user') break;
                     // Find the next user entry to pair with this agent question.
                     let userIdx = -1;
@@ -1282,7 +1282,7 @@ let SingleThreadGroupView: FC<{
                         // an intervening user reply — that pause is still
                         // unresolved and shouldn't fold.
                         const r = entries[j].role;
-                        if (r === 'clarify' || r === 'explain' || r === 'delegate') break;
+                        if (r === 'clarify' || r === 'explain' || r === 'delegate' || r === 'runtime_approval') break;
                     }
                     if (userIdx < 0) break;
                     pairs.push({ agentEntry: ag, userEntry: entries[userIdx] });
@@ -1308,7 +1308,7 @@ let SingleThreadGroupView: FC<{
                 }
             }
 
-            const isResolved = (entry.role === 'clarify' || entry.role === 'explain' || entry.role === 'delegate')
+            const isResolved = (entry.role === 'clarify' || entry.role === 'explain' || entry.role === 'delegate' || entry.role === 'runtime_approval')
                 && entries.slice(ei + 1).some(e => e.from === 'user');
             timelineItems.push({
                 key: `${keyPrefix}-${entry.role}-${tableId}-${ei}`,
@@ -1413,7 +1413,7 @@ let SingleThreadGroupView: FC<{
                 }
                 return interaction[0]?.timestamp;
             })();
-            const pauseIdx = interaction.findIndex(e => e.role === 'clarify' || e.role === 'explain' || e.role === 'delegate');
+            const pauseIdx = interaction.findIndex(e => e.role === 'clarify' || e.role === 'explain' || e.role === 'delegate' || e.role === 'runtime_approval');
             if (pauseIdx < 0) {
                 // No pause — render all entries then ThinkingStepsBanner
                 pushInteractionEntries(interaction, tableId, triggerType, highlighted, keyPrefix);
@@ -1508,7 +1508,7 @@ let SingleThreadGroupView: FC<{
                     'agent-clarify-entry',
                 );
                 const lastItem = timelineItems[timelineItems.length - 1];
-                if (lastItem?.interactionEntry?.role === 'clarify' || lastItem?.interactionEntry?.role === 'explain' || lastItem?.interactionEntry?.role === 'delegate') {
+                if (lastItem?.interactionEntry?.role === 'clarify' || lastItem?.interactionEntry?.role === 'explain' || lastItem?.interactionEntry?.role === 'delegate' || lastItem?.interactionEntry?.role === 'runtime_approval') {
                     lastItem.isClarifying = true;
                 }
             } else {
