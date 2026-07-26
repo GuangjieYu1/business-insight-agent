@@ -27,7 +27,7 @@ import { AppDispatch } from '../app/store';
 import { resolveRecommendedChart, getUrls, getTriggers, translateBackend } from '../app/utils';
 import { streamRequest } from '../app/apiClient';
 import { getErrorMessage } from '../app/errorCodes';
-import { Chart, ClarificationResponse, DictTable, FieldItem, createDictTable, InteractionEntry } from "../components/ComponentType";
+import { Chart, ClarificationResponse, DictTable, FieldItem, RuntimePackageApproval, createDictTable, InteractionEntry } from "../components/ComponentType";
 import { normalizeClarifyEvent, formatClarificationResponses } from '../app/clarification';
 
 import { alpha } from '@mui/material/styles';
@@ -45,7 +45,7 @@ import { transition } from '../app/tokens';
 import { Theme } from '@mui/material/styles';
 import { useTranslation } from 'react-i18next';
 import { shouldAutoFocusGeneratedChart } from '../app/agentInteractionPolicy';
-import { ClarificationPanel, DelegatePanel } from './AgentPausePanel';
+import { ClarificationPanel, DelegatePanel, RuntimePackageApprovalPanel } from './AgentPausePanel';
 
 const AgentWorkingOverlay: FC<{ message?: string; elapsed?: number; theme: Theme; onCancel?: () => void; color?: 'primary' | 'warning' }> = ({ message, elapsed, theme, onCancel, color = 'primary' }) => {
     const { t } = useTranslation();
@@ -346,6 +346,12 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
         // Find the most recent pause entry (clarify / explain / delegate).
         for (let i = interaction.length - 1; i >= 0; i--) {
             const entry = interaction[i];
+            if (entry.role === 'runtime_approval') {
+                return {
+                    kind: 'runtime_approval' as const,
+                    approval: pendingClarification.runtimeApproval || null,
+                };
+            }
             if (entry.role === 'delegate') {
                 return {
                     kind: 'delegate' as const,
@@ -370,6 +376,8 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
         completedStepCount: number;
         actionId: string;
         lastCreatedTableId: string | null;
+        runtimeApproval?: RuntimePackageApproval | null;
+        approvalDecision?: 'approve' | 'reject';
     }, displayPrompt?: string) => {
         if (!focusedTableId || (!clarificationContext && prompt.trim() === "")) return;
 
@@ -548,12 +556,20 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
         };
 
         if (isResume) {
-            // Resume: just send the assembled prompt as user_question. The
-            // backend appends it to the trajectory as a normal user message.
-            // No special clarification payload needed.
-            requestBody.trajectory = clarificationContext!.trajectory;
-            requestBody.user_question = prompt;
-            requestBody.completed_step_count = clarificationContext!.completedStepCount;
+            if (clarificationContext!.runtimeApproval && clarificationContext!.approvalDecision) {
+                requestBody.approval = {
+                    id: clarificationContext!.runtimeApproval.id,
+                    decision: clarificationContext!.approvalDecision,
+                };
+                requestBody.user_question = prompt;
+            } else {
+                // Resume: just send the assembled prompt as user_question. The
+                // backend appends it to the trajectory as a normal user message.
+                // No special clarification payload needed.
+                requestBody.trajectory = clarificationContext!.trajectory;
+                requestBody.user_question = prompt;
+                requestBody.completed_step_count = clarificationContext!.completedStepCount;
+            }
         } else {
             requestBody.user_question = prompt;
             if (focusedThread) requestBody.focused_thread = focusedThread;
@@ -1072,7 +1088,7 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
 
                     allResults.push(data);
                     processStreamingResult(data);
-                    if (data.type === "completion" || data.type === "clarify" || data.type === "explain" || data.type === "delegate") {
+                    if (data.type === "completion" || data.type === "clarify" || data.type === "explain" || data.type === "delegate" || data.type === "approval_required") {
                         handleCompletion();
                         return;
                     }
@@ -1291,6 +1307,9 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
             reportFromChat(prompt);
             return;
         }
+        if (clarificationCtx?.runtimeApproval) {
+            return;
+        }
         if (clarificationCtx) {
             // Build the structured response payload. The backend assembles
             // the final LLM-facing text ("Selected answers: 1. xxx; 2. yyy\n
@@ -1325,6 +1344,17 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
         exploreFromChat(displayPrompt, pendingClarification);
     }, [exploreFromChat, pendingClarification]);
 
+    const resumeFromRuntimeApproval = useCallback((decision: 'approve' | 'reject') => {
+        if (!pendingClarification?.runtimeApproval) return;
+        const displayPrompt = decision === 'approve'
+            ? t('chartRec.runtimePackageApproveUserMessage')
+            : t('chartRec.runtimePackageRejectUserMessage');
+        exploreFromChat(displayPrompt, {
+            ...pendingClarification,
+            approvalDecision: decision,
+        }, displayPrompt);
+    }, [exploreFromChat, pendingClarification, t]);
+
     // Reset accumulated clarification answers whenever the active
     // clarification draft changes (a new clarify/explain pause appeared,
     // the previous one was resumed, or the user dismissed it).
@@ -1340,8 +1370,9 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
     // click the remaining options (which auto-submits) or type something.
     const canSend = React.useMemo(() => {
         if (!focusedTableId) return false;
+        if (pendingClarification?.runtimeApproval) return false;
         return chatPrompt.trim().length > 0;
-    }, [chatPrompt, focusedTableId]);
+    }, [chatPrompt, focusedTableId, pendingClarification?.runtimeApproval]);
 
     // Handle a single clicked option (or free-text Enter) inside the
     // ClarificationPanel. We just record the selection by question index
@@ -1481,6 +1512,14 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
                     selectedAnswers={clarifyAnswers}
                     onSelectAnswer={handleSelectAnswer}
                     onSubmit={resumeFromClarification}
+                    onCancel={cancelAgent}
+                />
+            )}
+            {clarificationQuestions?.kind === 'runtime_approval' && pendingClarification?.runtimeApproval && !isChatFormulating && (
+                <RuntimePackageApprovalPanel
+                    approval={pendingClarification.runtimeApproval}
+                    onApprove={() => resumeFromRuntimeApproval('approve')}
+                    onReject={() => resumeFromRuntimeApproval('reject')}
                     onCancel={cancelAgent}
                 />
             )}

@@ -508,8 +508,10 @@ def data_agent_streaming():
     attached_images = content.get("attached_images", None)
     resume_trajectory = content.get("trajectory", None)
     completed_step_count = content.get("completed_step_count", 0)
+    approval_request = content.get("approval") if isinstance(content.get("approval"), dict) else None
+    is_approval_resume = approval_request is not None
 
-    if resume_trajectory is not None and not str(user_question or "").strip():
+    if resume_trajectory is not None and not str(user_question or "").strip() and not is_approval_resume:
         return stream_preflight_error(AppError(ErrorCode.INVALID_REQUEST, "user_question is required to resume after clarification"))
 
     logger.setLevel(logging.INFO)
@@ -524,13 +526,96 @@ def data_agent_streaming():
     language_instruction = get_language_instruction(mode="full")
 
     def generate():
-        ledger = _start_data_agent_ledger(
-            workspace,
-            input_tables=input_tables,
-            user_question=user_question,
-            resume_trajectory=resume_trajectory,
-        )
+        ledger = None
+        effective_resume_trajectory = resume_trajectory
+        effective_user_question = user_question
+        effective_completed_step_count = completed_step_count
+
         try:
+            if approval_request is not None:
+                from data_formulator.sandbox.runtime_packages import (
+                    approval_status_event,
+                    consume_runtime_package_approval,
+                    install_runtime_packages,
+                )
+
+                approval_id = str(approval_request.get("id") or "")
+                decision = str(approval_request.get("decision") or "").strip().lower()
+                workspace_id = workspace.confined_root.root.name
+                try:
+                    approval = consume_runtime_package_approval(
+                        identity_id=identity_id,
+                        workspace_id=workspace_id,
+                        approval_id=approval_id,
+                        decision=decision,
+                    )
+                except Exception as exc:
+                    yield json.dumps(
+                        approval_status_event(approval_id, "failed", error=str(exc)),
+                        ensure_ascii=False,
+                    ) + '\n'
+                    return
+
+                effective_resume_trajectory = approval.trajectory
+                effective_completed_step_count = approval.completed_step_count
+                if decision == "reject":
+                    yield json.dumps(
+                        approval_status_event(
+                            approval.id,
+                            "rejected",
+                            packages=[{"package": pkg} for pkg in approval.packages],
+                        ),
+                        ensure_ascii=False,
+                    ) + '\n'
+                    effective_user_question = (
+                        "[SYSTEM] The user rejected installing these optional Python libraries: "
+                        + ", ".join(approval.packages)
+                        + ". Do not request them again in this task. Continue with existing safe libraries "
+                        "such as pandas, numpy, scipy, and sklearn, or explain the limitation."
+                    )
+                else:
+                    yield json.dumps(
+                        approval_status_event(
+                            approval.id,
+                            "installing",
+                            packages=[{"package": pkg} for pkg in approval.packages],
+                        ),
+                        ensure_ascii=False,
+                    ) + '\n'
+                    install_result = install_runtime_packages(
+                        packages=approval.packages,
+                        import_names=approval.import_names,
+                    )
+                    yield json.dumps(
+                        install_result.public_payload(approval.id),
+                        ensure_ascii=False,
+                    ) + '\n'
+                    if install_result.ok:
+                        try:
+                            from data_formulator.sandbox.local_sandbox import retire_runtime_package_workers
+                            retire_runtime_package_workers()
+                        except Exception:
+                            logger.warning("Failed to retire sandbox workers after package install", exc_info=True)
+                        effective_user_question = (
+                            "[SYSTEM] The approved runtime Python libraries are installed and verified: "
+                            + ", ".join(approval.packages)
+                            + ". Continue from the interrupted analysis step."
+                        )
+                    else:
+                        effective_user_question = (
+                            "[SYSTEM] Runtime package installation failed for: "
+                            + ", ".join(approval.packages)
+                            + ". Do not request these libraries again in this task. Continue with existing safe "
+                            "libraries such as pandas, numpy, scipy, and sklearn, or explain the limitation."
+                        )
+
+            ledger = _start_data_agent_ledger(
+                workspace,
+                input_tables=input_tables,
+                user_question=effective_user_question,
+                resume_trajectory=effective_resume_trajectory,
+            )
+
             agent = DataAgent(
                 client=client,
                 workspace=workspace,
@@ -543,33 +628,31 @@ def data_agent_streaming():
             )
 
             trajectory = None
-            if resume_trajectory:
-                # Append the user's reply (already assembled by the frontend
-                # from option clicks + any typed instructions) as a normal
-                # user message. The LLM correlates numbered selections back
-                # to the questions in the immediately preceding assistant
-                # message.
-                trajectory = list(resume_trajectory)
+            if effective_resume_trajectory:
+                # Append the user's reply (assembled by the frontend, or by
+                # the server after an approval decision) as a normal user
+                # message. The LLM correlates it with the previous pause.
+                trajectory = list(effective_resume_trajectory)
                 trajectory.append({
                     "role": "user",
-                    "content": user_question,
+                    "content": effective_user_question,
                 })
-                logger.debug("== resuming after clarification ===>")
+                logger.debug("== resuming data agent turn ===>")
 
             for event in agent.run(
                 input_tables=input_tables,
-                user_question=user_question,
+                user_question=effective_user_question,
                 focused_thread=focused_thread,
                 other_threads=other_threads,
                 trajectory=trajectory,
-                completed_step_count=completed_step_count,
+                completed_step_count=effective_completed_step_count,
                 primary_tables=primary_tables,
                 attached_images=attached_images,
             ):
                 ledger = _call_data_agent_ledger(ledger, 'observe', event)
                 yield json.dumps(event, ensure_ascii=False) + '\n'
 
-                if event.get("type") in ("completion", "clarify", "explain"):
+                if event.get("type") in ("completion", "clarify", "explain", "approval_required"):
                     break
 
         except Exception as e:

@@ -574,7 +574,21 @@
     "switchToReport": "Switch to Report mode",
     "switchToExplore": "Switch to Explore mode",
     "modeExplore": "Explore",
-    "modeReport": "Report"
+    "modeReport": "Report",
+    "runtimePackageApprovalTitle": "Library install approval",
+    "runtimePackageApprovalIntro": "This analysis needs extra Python libraries that are not installed in the server sandbox.",
+    "runtimePackageApprovalSource": "Source: {{source}}. Install location: {{target}}.",
+    "runtimePackageApprovalRisk": "Library code will run on the server, but the sandbox will still block network access, file writes, subprocesses, and unsafe imports.",
+    "runtimePackageApprove": "Install and continue",
+    "runtimePackageReject": "Reject and use fallback",
+    "runtimePackageCancel": "Cancel this analysis",
+    "runtimePackageApprovalTimeline": "Approval required to install: {{packages}}",
+    "runtimePackageApproveUserMessage": "Approved installing the requested Python libraries. Continue the analysis.",
+    "runtimePackageRejectUserMessage": "Rejected installing the requested Python libraries. Continue with existing libraries and fallback methods.",
+    "runtimePackageInstalling": "Installing approved runtime libraries: {{packages}}",
+    "runtimePackageInstalled": "Runtime libraries installed: {{packages}}",
+    "runtimePackageRejected": "Runtime library installation rejected: {{packages}}",
+    "runtimePackageInstallFailed": "Runtime library installation failed: {{packages}}"
   },
   "dataGrid": {
     "loading": "Loading ...",

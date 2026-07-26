@@ -1,4 +1,4 @@
-# Copyright (c) Microsoft Corporation.
+﻿# Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
 """Local sandbox -- executes Python code in a persistent warm subprocess.
@@ -8,6 +8,7 @@ so user scripts access files via e.g. ``pd.read_csv("sample.csv")``.
 """
 
 import atexit
+import importlib
 import logging
 import os
 import threading
@@ -16,6 +17,16 @@ from multiprocessing import Pipe, Process
 from sys import addaudithook
 
 import pandas as pd
+
+from data_formulator.sandbox.runtime_packages import (
+    classify_sandbox_violation,
+    detect_missing_runtime_packages,
+    ensure_runtime_package_path,
+    manifest_import_names,
+    missing_payload,
+    missing_runtime_packages_from_error,
+    runtime_install_enabled,
+)
 
 from .base import Sandbox
 
@@ -31,10 +42,10 @@ def _warm_worker_loop(conn):
     waits for code to execute.
 
     Protocol (over *conn*):
-        Host -> worker:  (code, allowed_objects, workspace_path)           — fresh namespace
-                     or  (code, allowed_objects, workspace_path, True)     — persistent namespace
-                     or  "__clear_ns__"                                    — reset persistent namespace
-                     or  None                                              — terminate
+        Host -> worker:  (code, allowed_objects, workspace_path)           鈥?fresh namespace
+                     or  (code, allowed_objects, workspace_path, True)     鈥?persistent namespace
+                     or  "__clear_ns__"                                    鈥?reset persistent namespace
+                     or  None                                              鈥?terminate
         Worker -> host:   {"status": "ok", "allowed_objects": {...}}
                       or {"status": "error", "error_message": "..."}
     """
@@ -53,6 +64,15 @@ def _warm_worker_loop(conn):
     # library-level opens (pre-import phase) are permitted.
     _allowed_workspace = [None]
 
+    # Make administrator-approved runtime packages importable before audit
+    # hooks are installed. The path may not exist yet; keeping it in
+    # sys.path still lets newly spawned workers discover fresh installs.
+    import sys as _sys
+    try:
+        _runtime_package_dir = ensure_runtime_package_path()
+    except Exception:
+        _runtime_package_dir = None
+
     # Build a set of directories that should always be readable
     # (Python stdlib, site-packages, etc.) so that library imports
     # (e.g. pyarrow.parquet) are not blocked during code execution.
@@ -64,6 +84,7 @@ def _warm_worker_loop(conn):
         _sysconfig.get_path("stdlib"),
         _sysconfig.get_path("purelib"),
         _sysconfig.get_path("platlib"),
+        str(_runtime_package_dir) if _runtime_package_dir else None,
     ):
         if _p:
             _rp = os.path.realpath(_p)
@@ -90,7 +111,18 @@ def _warm_worker_loop(conn):
     except ImportError:
         pass
 
-    import sys as _sys
+    # Preload approved runtime packages before the audit hook. This lets
+    # packages with native binary wheels initialize while later user code
+    # still runs under the sandbox restrictions.
+    for _runtime_import_name in manifest_import_names():
+        try:
+            importlib.import_module(_runtime_import_name)
+        except Exception:
+            logger.warning(
+                "[LocalSandbox] failed to preload runtime package import %s",
+                _runtime_import_name,
+                exc_info=True,
+            )
 
     # Install audit hooks once -- they persist for the process lifetime.
     def block_mischief(event, arg):
@@ -122,7 +154,7 @@ def _warm_worker_loop(conn):
         })
         if event in _blocked_os_events:
             raise IOError("dangerous os operation forbidden in sandbox")
-        # Block network access — code should only transform data, not
+        # Block network access 鈥?code should only transform data, not
         # make outbound connections (prevents data exfiltration).
         if event in ("socket.connect", "socket.bind", "socket.sendto",
                       "socket.sendmsg", "socket.getaddrinfo"):
@@ -283,6 +315,28 @@ class _WarmWorkerPool:
         except Exception:
             pass
 
+    def retire_idle(self) -> None:
+        """Terminate idle workers so future tasks spawn with fresh imports."""
+        with self._lock:
+            idle_workers = list(self._available)
+            self._available.clear()
+            self._all = [pair for pair in self._all if pair not in idle_workers]
+
+        for proc, conn in idle_workers:
+            try:
+                conn.send(None)
+            except Exception:
+                pass
+            try:
+                proc.join(timeout=2)
+            except Exception:
+                pass
+            if proc.is_alive():
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+
     def shutdown(self) -> None:
         with self._lock:
             self._closed = True
@@ -305,6 +359,11 @@ class _WarmWorkerPool:
 
 # Module-level pool -- shared by all LocalSandbox instances using subprocess mode.
 _worker_pool = _WarmWorkerPool(size=2)
+
+
+def retire_runtime_package_workers() -> None:
+    """Discard idle warm workers after installing approved packages."""
+    _worker_pool.retire_idle()
 
 
 class SandboxSession:
@@ -333,11 +392,15 @@ class SandboxSession:
         """
         if self._closed:
             return {"status": "error", "error_message": "Session is closed"}
+        if runtime_install_enabled():
+            missing = detect_missing_runtime_packages(code)
+            if missing:
+                return {"status": "approval_required", **missing_payload(missing)}
         try:
             self._conn.send((code, {**allowed_objects}, workspace_path, True))
             if self._conn.poll(timeout=self.EXECUTION_TIMEOUT):
-                return self._conn.recv()
-            # Timed out — kill and discard the worker
+                return _enrich_sandbox_error(self._conn.recv())
+            # Timed out 鈥?kill and discard the worker
             _worker_pool.discard(self._proc, self._conn)
             self._closed = True
             return {
@@ -514,6 +577,9 @@ class LocalSandbox(Sandbox):
                 allowed_objects = {output_variable: None}
                 result = self._run_in_warm_subprocess(code, allowed_objects, workspace_path)
 
+                if result["status"] == "approval_required":
+                    return {"status": "approval_required", **result}
+
                 if result["status"] == "ok":
                     output_df = result["allowed_objects"][output_variable]
                     if not isinstance(output_df, pd.DataFrame):
@@ -538,6 +604,8 @@ class LocalSandbox(Sandbox):
                     return {
                         "status": "error",
                         "content": result.get("error_message", result.get("content", "Unknown error")),
+                        **({"missing_imports": result.get("missing_imports"), "packages": result.get("packages")} if result.get("missing_imports") else {}),
+                        **({"sandbox_violation": result.get("sandbox_violation")} if result.get("sandbox_violation") else {}),
                     }
 
             except Exception as e:
@@ -556,14 +624,19 @@ class LocalSandbox(Sandbox):
     @staticmethod
     def _run_in_warm_subprocess(code, allowed_objects, workspace_path=None):
         """Send code to a warm worker from the pool, return the result."""
+        if runtime_install_enabled():
+            missing = detect_missing_runtime_packages(code)
+            if missing:
+                return {"status": "approval_required", **missing_payload(missing)}
+
         proc, conn = _worker_pool.acquire()
         try:
             conn.send((code, {**allowed_objects}, workspace_path))
             # Enforce a wall-clock timeout to prevent runaway code
             if conn.poll(timeout=LocalSandbox.EXECUTION_TIMEOUT):
-                result = conn.recv()
+                result = _enrich_sandbox_error(conn.recv())
             else:
-                # Timed out — kill and discard the worker
+                # Timed out 鈥?kill and discard the worker
                 _worker_pool.discard(proc, conn)
                 return {
                     "status": "error",
@@ -573,9 +646,23 @@ class LocalSandbox(Sandbox):
                     ),
                 }
             _worker_pool.release(proc, conn)
-            return result
+            return _enrich_sandbox_error(result)
         except Exception as e:
             _worker_pool.discard(proc, conn)
             return {"status": "error", "content": f"Error: worker communication failed - {e}"}
 
+
+def _enrich_sandbox_error(result: dict) -> dict:
+    if not isinstance(result, dict) or result.get("status") != "error":
+        return result
+
+    message = str(result.get("error_message") or result.get("content") or "")
+    if runtime_install_enabled():
+        missing = missing_runtime_packages_from_error(message)
+        if missing:
+            result.update(missing_payload(missing))
+    violation = classify_sandbox_violation(message)
+    if violation:
+        result["sandbox_violation"] = violation
+    return result
 
