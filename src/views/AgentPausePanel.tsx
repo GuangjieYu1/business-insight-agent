@@ -407,6 +407,7 @@ export const ClarificationPanel: FC<ClarificationPanelProps> = ({
 
 interface RuntimePackageApprovalPanelProps {
     approval: RuntimePackageApproval;
+    status?: 'pending' | 'installing' | 'installed' | 'rejected' | 'failed';
     onApprove: () => void;
     onReject: () => void;
     onCancel: () => void;
@@ -414,6 +415,7 @@ interface RuntimePackageApprovalPanelProps {
 
 export const RuntimePackageApprovalPanel: FC<RuntimePackageApprovalPanelProps> = ({
     approval,
+    status = 'pending',
     onApprove,
     onReject,
     onCancel,
@@ -421,6 +423,15 @@ export const RuntimePackageApprovalPanel: FC<RuntimePackageApprovalPanelProps> =
     const theme = useTheme();
     const { t } = useTranslation();
     const packages = (approval.packages || []).filter(Boolean);
+    const statusText = status === 'installing'
+        ? t('chartRec.runtimePackageInstalling', { packages: packages.join(', ') })
+        : status === 'installed'
+            ? t('chartRec.runtimePackageInstalled', { packages: packages.join(', ') })
+            : status === 'rejected'
+                ? t('chartRec.runtimePackageRejected', { packages: packages.join(', ') })
+                : status === 'failed'
+                    ? t('chartRec.runtimePackageInstallFailed', { packages: packages.join(', ') })
+                    : '';
 
     return (
         <AgentPauseShell
@@ -468,11 +479,15 @@ export const RuntimePackageApprovalPanel: FC<RuntimePackageApprovalPanelProps> =
                     {t('chartRec.runtimePackageApprovalRisk')}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {status !== 'pending' && (
+                        <Typography sx={{ width: '100%', fontSize: 11, color: theme.palette.warning.dark, lineHeight: 1.5 }}>{statusText}</Typography>
+                    )}
                     <Button
                         size="small"
                         variant="contained"
                         color="warning"
                         onClick={onApprove}
+                        disabled={status !== 'pending'}
                         sx={{ textTransform: 'none', fontSize: 11, py: 0.25 }}
                     >
                         {t('chartRec.runtimePackageApprove')}
@@ -482,6 +497,7 @@ export const RuntimePackageApprovalPanel: FC<RuntimePackageApprovalPanelProps> =
                         variant="outlined"
                         color="inherit"
                         onClick={onReject}
+                        disabled={status !== 'pending'}
                         sx={{ textTransform: 'none', fontSize: 11, py: 0.25 }}
                     >
                         {t('chartRec.runtimePackageReject')}

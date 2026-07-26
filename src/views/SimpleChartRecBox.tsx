@@ -146,6 +146,11 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
     // clears). Tracks the draftId we've already auto-submitted for.
     const clarifySubmittedRef = useRef<string | null>(null);
     const [isChatFormulating, setIsChatFormulating] = useState(false);
+    const [runtimeApprovalProgress, setRuntimeApprovalProgress] = useState<{
+        approval: RuntimePackageApproval;
+        status: 'pending' | 'installing' | 'installed' | 'rejected' | 'failed';
+        error?: string;
+    } | null>(null);
     const [mentionedTableIds, setMentionedTableIds] = useState<string[]>([]);
     const [mentionDropdownOpen, setMentionDropdownOpen] = useState(false);
     const [mentionHighlightIdx, setMentionHighlightIdx] = useState(0);
@@ -653,8 +658,85 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
         let pendingThought: string = '';
 
         const processStreamingResult = (result: any) => {
+            if (runtimeApprovalProgress && result.type !== "approval_status" && result.type !== "approval_required") setRuntimeApprovalProgress(null);
             // ── context_info: show injected rules/knowledge at the top ──
+            if (result.type === "approval_status") {
+                const approvalId = String(result.approvalId || "");
+                const status = String(result.status || "").trim().toLowerCase();
+                if (approvalId && ["installing", "installed", "rejected", "failed"].includes(status)) {
+                    setRuntimeApprovalProgress(prev => prev && prev.approval.id === approvalId
+                        ? { ...prev, status: status as 'installing' | 'installed' | 'rejected' | 'failed', error: result.error }
+                        : prev);
+                }
+                return;
+            }
+
+            if (result.type === "approval_required") {
+                const rawApproval = result.approval && typeof result.approval === 'object' ? result.approval : {};
+                const approvalId = String(rawApproval.id || "");
+                const packages = (Array.isArray(rawApproval.packages)
+                    ? rawApproval.packages
+                    : Array.isArray(result.packages) ? result.packages : [])
+                    .map((pkg: unknown) => String(pkg).trim())
+                    .filter(Boolean);
+                if (!approvalId || packages.length === 0) {
+                    const errMsg = t('chartRec.runtimePackageInstallFailed', { packages: packages.join(', ') || 'runtime package' });
+                    dispatch(dfActions.addMessages({
+                        timestamp: Date.now(), type: 'error',
+                        component: 'data-agent', value: errMsg,
+                    }));
+                    if (currentDraftId) {
+                        dispatch(dfActions.updateDeriveStatus({ nodeId: currentDraftId, status: 'error' }));
+                    }
+                    setIsChatFormulating(false);
+                    agentAbortRef.current = null;
+                    clearTimeout(timeoutId);
+                    isCompleted = true;
+                    return;
+                }
+
+                const approval: RuntimePackageApproval = {
+                    id: approvalId,
+                    packages,
+                    importNames: Array.isArray(rawApproval.importNames) ? rawApproval.importNames : undefined,
+                    expiresAt: rawApproval.expiresAt,
+                    source: rawApproval.source,
+                    installTarget: rawApproval.installTarget,
+                    risk: rawApproval.risk,
+                };
+                setRuntimeApprovalProgress({ approval, status: 'pending' });
+                if (currentDraftId) {
+                    const priorSteps = thinkingSteps.filter(s => s.trim()).join('\n');
+                    thinkingSteps = [];
+                    pendingThought = '';
+                    dispatch(dfActions.updateDraftRunningPlan({ draftId: currentDraftId, plan: '' }));
+                    const pauseEntry: InteractionEntry = {
+                        from: 'data-agent', to: 'user',
+                        role: 'runtime_approval',
+                        plan: priorSteps || result.thought || undefined,
+                        content: translateBackend(result.message, result.message_code, result.message_params)
+                            || t('chartRec.runtimePackageApprovalIntro'),
+                        timestamp: Date.now(),
+                    };
+                    dispatch(dfActions.appendDraftInteraction({ draftId: currentDraftId, entry: pauseEntry }));
+                    currentDraftInteraction.push(pauseEntry);
+                    dispatch(dfActions.updateDeriveStatus({ nodeId: currentDraftId, status: 'clarifying' }));
+                    dispatch(dfActions.updateDraftClarification({ draftId: currentDraftId, pendingClarification: {
+                        trajectory: result.trajectory || [],
+                        completedStepCount: result.completed_step_count || 0,
+                        lastCreatedTableId,
+                        runtimeApproval: approval,
+                    }}));
+                }
+                setIsChatFormulating(false);
+                agentAbortRef.current = null;
+                clearTimeout(timeoutId);
+                setChatPrompt("");
+                setAttachedImages([]);
+                isCompleted = true;
+                return;
             // Rendered as already-completed tool-style steps (✓ prefix) so they
+            }
             // visually match the rest of the agent's tool-call timeline.
             if (result.type === "context_info") {
                 const rules: string[] = result.rules_injected || [];
@@ -1346,6 +1428,7 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
 
     const resumeFromRuntimeApproval = useCallback((decision: 'approve' | 'reject') => {
         if (!pendingClarification?.runtimeApproval) return;
+        setRuntimeApprovalProgress(prev => prev ? { ...prev, status: decision === 'approve' ? 'installing' : 'rejected' } : prev);
         const displayPrompt = decision === 'approve'
             ? t('chartRec.runtimePackageApproveUserMessage')
             : t('chartRec.runtimePackageRejectUserMessage');
@@ -1520,6 +1603,15 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
                     approval={pendingClarification.runtimeApproval}
                     onApprove={() => resumeFromRuntimeApproval('approve')}
                     onReject={() => resumeFromRuntimeApproval('reject')}
+                    onCancel={cancelAgent}
+                />
+            )}
+            {runtimeApprovalProgress && runtimeApprovalProgress.status !== 'pending' && (
+                <RuntimePackageApprovalPanel
+                    approval={runtimeApprovalProgress.approval}
+                    status={runtimeApprovalProgress.status}
+                    onApprove={() => undefined}
+                    onReject={() => undefined}
                     onCancel={cancelAgent}
                 />
             )}

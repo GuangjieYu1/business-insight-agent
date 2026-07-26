@@ -43,6 +43,7 @@ from data_formulator.agents.agent_language import build_language_instruction
 from data_formulator.security.sanitize import classify_llm_error, sanitize_error_message
 from data_formulator.error_handler import json_ok, stream_preflight_error, classify_and_wrap_llm_error
 from data_formulator.errors import AppError, ErrorCode
+from data_formulator.sandbox.runtime_packages import runtime_install_enabled
 
 # Get logger for this module (logging config done in app.py)
 logger = logging.getLogger(__name__)
@@ -532,6 +533,43 @@ def data_agent_streaming():
         effective_completed_step_count = completed_step_count
 
         try:
+            if approval_request is None and runtime_install_enabled():
+                from data_formulator.sandbox.runtime_packages import (
+                    create_runtime_package_approval,
+                    detect_explicit_runtime_package_requests,
+                )
+                requested = detect_explicit_runtime_package_requests(user_question)
+                if requested:
+                    workspace_id = workspace.confined_root.root.name
+                    approval = create_runtime_package_approval(
+                        identity_id=identity_id,
+                        workspace_id=workspace_id,
+                        packages=[item.package_name for item in requested],
+                        import_names=[item.import_name for item in requested],
+                        trajectory=[{"role": "user", "content": user_question}],
+                        completed_step_count=0,
+                    )
+                    ledger = _start_data_agent_ledger(
+                        workspace,
+                        input_tables=input_tables,
+                        user_question=user_question,
+                        resume_trajectory=None,
+                    )
+                    event = {
+                        "type": "approval_required",
+                        "iteration": 0,
+                        "tool": "runtime_package_request",
+                        "approval": approval.public_payload(),
+                        "packages": approval.packages,
+                        "missing_imports": approval.import_names,
+                        "trajectory": approval.trajectory,
+                        "completed_step_count": approval.completed_step_count,
+                        "message": "Additional Python libraries are required before this sandbox code can continue.",
+                        "message_code": "agent.runtimePackageApprovalRequired",
+                    }
+                    ledger = _call_data_agent_ledger(ledger, "observe", event)
+                    yield json.dumps(event, ensure_ascii=False) + "\n"
+                    return
             if approval_request is not None:
                 from data_formulator.sandbox.runtime_packages import (
                     approval_status_event,

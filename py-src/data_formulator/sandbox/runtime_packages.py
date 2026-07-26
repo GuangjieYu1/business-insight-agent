@@ -35,6 +35,8 @@ from data_formulator.datalake.workspace import get_data_formulator_home
 
 _PACKAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _MISSING_RE = re.compile(r"No module named ['\"]([^'\"]+)['\"]")
+_EXPLICIT_INSTALL_RE = re.compile(r"(?:\u4e0b\u8f7d|\u5b89\u88c5|download|install|pip\s+install)", re.IGNORECASE)
+_PACKAGE_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,127}")
 _APPROVAL_TTL = timedelta(minutes=10)
 _APPROVALS: dict[str, "RuntimePackageApproval"] = {}
 _APPROVAL_LOCK = threading.Lock()
@@ -42,9 +44,12 @@ _APPROVAL_LOCK = threading.Lock()
 _IMPORT_PACKAGE_ALIASES = {
     "cv2": "opencv-python",
     "PIL": "Pillow",
+
     "sklearn": "scikit-learn",
 }
 
+
+_INSTALL_COMMAND_WORDS = {"download", "install", "pip", "package", "packages", "python", "analyze", "analysis", "use", "with", "and", "to", "for", "from"}
 
 @dataclass(frozen=True)
 class MissingRuntimePackage:
@@ -132,6 +137,47 @@ def normalize_package_name(raw: str) -> str:
 def package_for_import(import_name: str) -> str:
     return normalize_package_name(_IMPORT_PACKAGE_ALIASES.get(import_name, import_name))
 
+
+def _import_name_for_package(package_name: str) -> str:
+    normalized = normalize_package_name(package_name)
+    for import_name, aliased_package in _IMPORT_PACKAGE_ALIASES.items():
+        if normalize_package_name(aliased_package) == normalized:
+            return import_name
+    return normalized.replace("-", "_")
+
+
+def detect_explicit_runtime_package_requests(user_question: str) -> list[MissingRuntimePackage]:
+    """Find explicit user requests such as download xgboost."""
+    question = str(user_question or "")
+    trigger = _EXPLICIT_INSTALL_RE.search(question)
+    if not trigger:
+        return []
+    if re.search(r"(?:https?://|git\+|git@|--[A-Za-z])", question, re.IGNORECASE):
+        return []
+
+    requests: list[MissingRuntimePackage] = []
+    seen: set[str] = set()
+    for token in _PACKAGE_TOKEN_RE.findall(question[trigger.end():]):
+        lowered = token.lower()
+        if lowered in {"for", "to", "from", "on", "during"}:
+            break
+        if lowered in _INSTALL_COMMAND_WORDS or lowered == "and":
+            continue
+        try:
+            package_name = normalize_package_name(token)
+        except ValueError:
+            continue
+        if package_name in seen:
+            continue
+        seen.add(package_name)
+        import_name = _import_name_for_package(package_name)
+        try:
+            available = importlib.util.find_spec(import_name) is not None
+        except (ImportError, AttributeError, ValueError):
+            available = False
+        if not available:
+            requests.append(MissingRuntimePackage(import_name, package_name))
+    return requests
 
 def _normalize_import_root(raw: str) -> str:
     root = str(raw or "").split(".", 1)[0].strip()
