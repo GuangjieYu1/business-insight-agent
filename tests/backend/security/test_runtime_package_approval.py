@@ -256,6 +256,31 @@ def test_local_install_errors_do_not_request_official_approval(monkeypatch, tmp_
     assert [event['status'] for event in result.progress_events] == ['installing']
 
 
+def test_install_failure_hides_verbose_pip_output(monkeypatch, tmp_path):
+    monkeypatch.setenv('DATA_FORMULATOR_HOME', str(tmp_path))
+
+    class Completed:
+        returncode = 1
+        stdout = 'Collecting xgboost\nDownloading https://mirrors.example/simple/xgboost.whl 131.7/131.7 MB'
+        stderr = 'ERROR: Could not install packages due to an OSError: [Errno 28] No space left on device'
+
+    monkeypatch.setattr('data_formulator.sandbox.runtime_packages.subprocess.run', lambda *args, **kwargs: Completed())
+
+    result = _install_from_source(
+        installer=_InstallerCommand('pip', ['python', '-m', 'pip', 'install']),
+        packages=['xgboost'],
+        import_names=['xgboost'],
+        source_id='secondary',
+        timeout_seconds=30,
+    )
+
+    assert result.ok is False
+    assert result.error_code == 'disk_full'
+    assert result.error_message == 'The server disk is full while installing runtime libraries.'
+    assert 'Downloading' not in result.error_message
+    assert 'mirrors.example' not in result.error_message
+
+
 def test_install_command_uses_binary_wheels_and_shell_false(monkeypatch, tmp_path):
     monkeypatch.setenv('DATA_FORMULATOR_HOME', str(tmp_path))
     captured = {}

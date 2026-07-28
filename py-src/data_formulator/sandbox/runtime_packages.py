@@ -10,6 +10,7 @@ import importlib
 import importlib.metadata
 import importlib.util
 import json
+import logging
 import os
 import platform
 import re
@@ -29,6 +30,8 @@ from urllib.parse import urlsplit
 
 from data_formulator.datalake.workspace import get_data_formulator_home
 
+logger = logging.getLogger(__name__)
+
 try:  # pragma: no cover - platform dependent
     import fcntl  # type: ignore
 except ImportError:  # pragma: no cover - Windows
@@ -41,7 +44,7 @@ except ImportError:  # pragma: no cover - POSIX
 
 _PACKAGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _MISSING_RE = re.compile(r"No module named ['\"]([^'\"]+)['\"]")
-_EXPLICIT_INSTALL_RE = re.compile(r"(?:下载|安装|download|install|pip\s+install)", re.IGNORECASE)
+_EXPLICIT_INSTALL_RE = re.compile(r"(?:\u4e0b\u8f7d|\u5b89\u88c5|download|install|pip\s+install)", re.IGNORECASE)
 _PACKAGE_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,127}")
 _APPROVAL_TTL = timedelta(minutes=10)
 _APPROVALS: dict[str, "RuntimePackageApproval"] = {}
@@ -713,13 +716,20 @@ def _install_from_source(
     except OSError as exc:
         _cleanup_path(staging_dir)
         code = "disk_full" if "no space" in str(exc).lower() else "unknown_install_error"
-        return _AttemptResult(False, False, str(exc), code, source)
+        return _AttemptResult(False, False, _install_failure_summary(code, source), code, source)
 
     output = "\n".join(part for part in (completed.stdout, completed.stderr) if part).strip()
     if completed.returncode != 0:
         _cleanup_path(staging_dir)
         error_code, source_failure = _classify_install_failure(output)
-        return _AttemptResult(False, source_failure, output or "Package installation failed.", error_code, source)
+        if output:
+            logger.warning(
+                "Runtime package install failed source=%s error_code=%s detail=%s",
+                source.get("id"),
+                error_code,
+                sanitize_install_error(output, limit=2000),
+            )
+        return _AttemptResult(False, source_failure, _install_failure_summary(error_code, source), error_code, source)
 
     verify = _verify_installed_bundle(staging_dir, import_names, packages)
     if not verify.ok:
@@ -760,6 +770,22 @@ def _classify_install_failure(output: str) -> tuple[str, bool]:
     if any(pattern in lowered for pattern in _NO_WHEEL_PATTERNS):
         return "no_compatible_wheel", False
     return "unknown_install_error", False
+
+
+def _install_failure_summary(error_code: str, source: dict[str, str] | None = None) -> str:
+    source_label = (source or {}).get("label") or "the configured package source"
+    messages = {
+        "invalid_package": "The requested package name is not allowed.",
+        "installer_unavailable": "No supported Python package installer is available on the server.",
+        "source_unreachable": f"The package source {source_label} could not be reached.",
+        "no_compatible_wheel": "No compatible binary wheel is available for the current Python and CPU platform.",
+        "install_timeout": f"Installing from {source_label} timed out.",
+        "permission_denied": "The server could not write to the runtime package directory.",
+        "disk_full": "The server disk is full while installing runtime libraries.",
+        "import_validation_failed": "The package installed, but import validation failed in a clean Python process.",
+        "unknown_install_error": "Runtime package installation failed. Check the server log for details.",
+    }
+    return messages.get(error_code, messages["unknown_install_error"])
 
 
 def _verify_installed_bundle(staging_dir: Path, import_names: list[str], packages: list[str]) -> _AttemptResult:
