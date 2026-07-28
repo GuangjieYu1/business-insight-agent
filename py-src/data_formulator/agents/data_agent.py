@@ -1568,6 +1568,7 @@ class DataAgent:
         )
         return {
             "type": "approval_required",
+            "kind": approval.kind,
             "iteration": iteration,
             "tool": tool,
             "approval": approval.public_payload(),

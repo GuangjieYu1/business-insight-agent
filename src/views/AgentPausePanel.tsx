@@ -37,6 +37,7 @@ import {
     ClarificationResponse,
     DelegateTarget,
     RuntimePackageApproval,
+    RuntimePackageApprovalStatus,
 } from '../components/ComponentType';
 import { renderFieldHighlights } from './InteractionEntryCard';
 
@@ -407,7 +408,11 @@ export const ClarificationPanel: FC<ClarificationPanelProps> = ({
 
 interface RuntimePackageApprovalPanelProps {
     approval: RuntimePackageApproval;
-    status?: 'pending' | 'installing' | 'installed' | 'rejected' | 'failed';
+    status?: RuntimePackageApprovalStatus;
+    error?: string;
+    errorCode?: string;
+    source?: { id?: string; label?: string; domain?: string };
+    versions?: Record<string, string>;
     onApprove: () => void;
     onReject: () => void;
     onCancel: () => void;
@@ -416,6 +421,10 @@ interface RuntimePackageApprovalPanelProps {
 export const RuntimePackageApprovalPanel: FC<RuntimePackageApprovalPanelProps> = ({
     approval,
     status = 'pending',
+    error,
+    errorCode,
+    source,
+    versions,
     onApprove,
     onReject,
     onCancel,
@@ -423,15 +432,31 @@ export const RuntimePackageApprovalPanel: FC<RuntimePackageApprovalPanelProps> =
     const theme = useTheme();
     const { t } = useTranslation();
     const packages = (approval.packages || []).filter(Boolean);
+    const packageText = packages.join(', ') || t('chartRec.runtimePackageUnknownPackage');
+    const activeSource = source?.label
+        ? `${source.label}${source.domain ? ` (${source.domain})` : ''}`
+        : '';
+    const sourceList = (approval.sources || [])
+        .map(item => `${item.label || item.id}${item.domain ? ` (${item.domain})` : ''}`)
+        .filter(Boolean);
+    const versionText = versions && Object.keys(versions).length > 0
+        ? Object.entries(versions).map(([pkg, version]) => `${pkg} ${version}`).join(', ')
+        : '';
+    const isOfficial = approval.kind === 'official_pypi_fallback';
     const statusText = status === 'installing'
-        ? t('chartRec.runtimePackageInstalling', { packages: packages.join(', ') })
-        : status === 'installed'
-            ? t('chartRec.runtimePackageInstalled', { packages: packages.join(', ') })
-            : status === 'rejected'
-                ? t('chartRec.runtimePackageRejected', { packages: packages.join(', ') })
-                : status === 'failed'
-                    ? t('chartRec.runtimePackageInstallFailed', { packages: packages.join(', ') })
-                    : '';
+        ? t('chartRec.runtimePackageInstalling', { packages: packageText, source: activeSource || t('chartRec.runtimePackageDefaultSource') })
+        : status === 'retrying_secondary'
+            ? t('chartRec.runtimePackageRetryingSecondary', { packages: packageText, source: activeSource || t('chartRec.runtimePackageSecondarySource') })
+            : status === 'awaiting_official_approval'
+                ? t('chartRec.runtimePackageAwaitingOfficial', { packages: packageText })
+                : status === 'installed'
+                    ? t('chartRec.runtimePackageInstalled', { packages: packageText, versions: versionText })
+                    : status === 'rejected'
+                        ? t('chartRec.runtimePackageRejected', { packages: packageText })
+                        : status === 'failed'
+                            ? t('chartRec.runtimePackageInstallFailed', { packages: packageText, errorCode: errorCode || t('chartRec.runtimePackageUnknownError') })
+                            : '';
+    const detailError = error || approval.precedingError || '';
 
     return (
         <AgentPauseShell
@@ -440,17 +465,17 @@ export const RuntimePackageApprovalPanel: FC<RuntimePackageApprovalPanelProps> =
                 sx={{ fontSize: 16, color: theme.palette.warning.main }}
             />}
             accentColor={theme.palette.warning.main}
-            title={t('chartRec.runtimePackageApprovalTitle')}
-            minimizedPreview={packages.join(', ')}
+            title={isOfficial ? t('chartRec.runtimePackageOfficialApprovalTitle') : t('chartRec.runtimePackageApprovalTitle')}
+            minimizedPreview={packageText}
             dismissTooltip={t('chartRec.runtimePackageCancel')}
             minimizeTooltip={t('chartRec.minimizeClarification')}
             expandTooltip={t('chartRec.expandClarification')}
             onCancel={onCancel}
-            resetKey={`${approval.id}|${packages.join('|')}`}
+            resetKey={`${approval.id}|${packages.join('|')}|${status}`}
         >
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px', pb: '8px', pl: '20px', pr: '4px' }}>
                 <Typography sx={{ fontSize: 12, color: theme.palette.text.primary, lineHeight: 1.5 }}>
-                    {t('chartRec.runtimePackageApprovalIntro')}
+                    {t(isOfficial ? 'chartRec.runtimePackageOfficialApprovalIntro' : 'chartRec.runtimePackageApprovalIntro')}
                 </Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                     {packages.map(pkg => (
@@ -471,17 +496,34 @@ export const RuntimePackageApprovalPanel: FC<RuntimePackageApprovalPanelProps> =
                 </Box>
                 <Typography sx={{ fontSize: 11, color: theme.palette.text.secondary, lineHeight: 1.5 }}>
                     {t('chartRec.runtimePackageApprovalSource', {
-                        source: approval.source || 'PyPI binary wheels',
+                        source: sourceList.join(' -> ') || approval.source || 'PyPI binary wheels',
                         target: approval.installTarget || 'DATA_FORMULATOR_HOME/runtime-python',
                     })}
                 </Typography>
+                {activeSource && status !== 'pending' && (
+                    <Typography sx={{ fontSize: 11, color: theme.palette.text.secondary, lineHeight: 1.5 }}>
+                        {t('chartRec.runtimePackageCurrentSource', { source: activeSource })}
+                    </Typography>
+                )}
+                {detailError && (
+                    <Typography sx={{ fontSize: 11, color: theme.palette.error.main, lineHeight: 1.5, wordBreak: 'break-word' }}>
+                        {t('chartRec.runtimePackageFailureDetail', { error: detailError })}
+                    </Typography>
+                )}
                 <Typography sx={{ fontSize: 11, color: theme.palette.warning.dark, lineHeight: 1.5 }}>
                     {t('chartRec.runtimePackageApprovalRisk')}
                 </Typography>
+                {status !== 'pending' && (
+                    <Typography sx={{ fontSize: 11, color: status === 'failed' ? theme.palette.error.main : theme.palette.warning.dark, lineHeight: 1.5 }}>
+                        {statusText}
+                    </Typography>
+                )}
+                {status === 'failed' && (
+                    <Typography sx={{ fontSize: 11, color: theme.palette.text.secondary, lineHeight: 1.5 }}>
+                        {t('chartRec.runtimePackageFallbackHint')}
+                    </Typography>
+                )}
                 <Box sx={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {status !== 'pending' && (
-                        <Typography sx={{ width: '100%', fontSize: 11, color: theme.palette.warning.dark, lineHeight: 1.5 }}>{statusText}</Typography>
-                    )}
                     <Button
                         size="small"
                         variant="contained"
@@ -490,7 +532,7 @@ export const RuntimePackageApprovalPanel: FC<RuntimePackageApprovalPanelProps> =
                         disabled={status !== 'pending'}
                         sx={{ textTransform: 'none', fontSize: 11, py: 0.25 }}
                     >
-                        {t('chartRec.runtimePackageApprove')}
+                        {t(isOfficial ? 'chartRec.runtimePackageApproveOfficial' : 'chartRec.runtimePackageApprove')}
                     </Button>
                     <Button
                         size="small"

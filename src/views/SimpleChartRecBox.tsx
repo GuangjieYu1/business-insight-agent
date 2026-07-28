@@ -27,7 +27,7 @@ import { AppDispatch } from '../app/store';
 import { resolveRecommendedChart, getUrls, getTriggers, translateBackend } from '../app/utils';
 import { streamRequest } from '../app/apiClient';
 import { getErrorMessage } from '../app/errorCodes';
-import { Chart, ClarificationResponse, DictTable, FieldItem, RuntimePackageApproval, createDictTable, InteractionEntry } from "../components/ComponentType";
+import { Chart, ClarificationResponse, DictTable, FieldItem, RuntimePackageApproval, RuntimePackageApprovalStatus, createDictTable, InteractionEntry } from "../components/ComponentType";
 import { normalizeClarifyEvent, formatClarificationResponses } from '../app/clarification';
 
 import { alpha } from '@mui/material/styles';
@@ -148,8 +148,11 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
     const [isChatFormulating, setIsChatFormulating] = useState(false);
     const [runtimeApprovalProgress, setRuntimeApprovalProgress] = useState<{
         approval: RuntimePackageApproval;
-        status: 'pending' | 'installing' | 'installed' | 'rejected' | 'failed';
+        status: RuntimePackageApprovalStatus;
         error?: string;
+        errorCode?: string;
+        source?: { id?: string; label?: string; domain?: string };
+        versions?: Record<string, string>;
     } | null>(null);
     const [mentionedTableIds, setMentionedTableIds] = useState<string[]>([]);
     const [mentionDropdownOpen, setMentionDropdownOpen] = useState(false);
@@ -658,14 +661,28 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
         let pendingThought: string = '';
 
         const processStreamingResult = (result: any) => {
-            if (runtimeApprovalProgress && result.type !== "approval_status" && result.type !== "approval_required") setRuntimeApprovalProgress(null);
+            if (result.type !== "approval_status" && result.type !== "approval_required") {
+                setRuntimeApprovalProgress(prev => prev?.status === 'installed' ? null : prev);
+            }
             // ── context_info: show injected rules/knowledge at the top ──
             if (result.type === "approval_status") {
                 const approvalId = String(result.approvalId || "");
-                const status = String(result.status || "").trim().toLowerCase();
-                if (approvalId && ["installing", "installed", "rejected", "failed"].includes(status)) {
+                const status = String(result.status || "").trim().toLowerCase() as RuntimePackageApprovalStatus;
+                const knownStatuses: RuntimePackageApprovalStatus[] = [
+                    'installing', 'retrying_secondary', 'awaiting_official_approval',
+                    'installed', 'rejected', 'failed',
+                ];
+                if (approvalId && knownStatuses.includes(status)) {
+                    const rawVersions = result.versions && typeof result.versions === 'object' ? result.versions : undefined;
                     setRuntimeApprovalProgress(prev => prev && prev.approval.id === approvalId
-                        ? { ...prev, status: status as 'installing' | 'installed' | 'rejected' | 'failed', error: result.error }
+                        ? {
+                            ...prev,
+                            status,
+                            error: typeof result.error === 'string' ? result.error : undefined,
+                            errorCode: typeof result.errorCode === 'string' ? result.errorCode : undefined,
+                            source: result.source && typeof result.source === 'object' ? result.source : undefined,
+                            versions: rawVersions as Record<string, string> | undefined,
+                        }
                         : prev);
                 }
                 return;
@@ -695,14 +712,28 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
                     return;
                 }
 
+                const sources = Array.isArray(rawApproval.sources)
+                    ? rawApproval.sources
+                        .map((item: any) => ({
+                            id: String(item?.id || ''),
+                            label: String(item?.label || ''),
+                            domain: item?.domain ? String(item.domain) : undefined,
+                        }))
+                        .filter((item: { id: string; label: string }) => item.id || item.label)
+                    : undefined;
                 const approval: RuntimePackageApproval = {
                     id: approvalId,
+                    kind: rawApproval.kind === 'official_pypi_fallback' || result.kind === 'official_pypi_fallback'
+                        ? 'official_pypi_fallback'
+                        : 'python_package_install',
                     packages,
                     importNames: Array.isArray(rawApproval.importNames) ? rawApproval.importNames : undefined,
                     expiresAt: rawApproval.expiresAt,
                     source: rawApproval.source,
+                    sources,
                     installTarget: rawApproval.installTarget,
                     risk: rawApproval.risk,
+                    precedingError: typeof rawApproval.precedingError === 'string' ? rawApproval.precedingError : undefined,
                 };
                 setRuntimeApprovalProgress({ approval, status: 'pending' });
                 if (currentDraftId) {
@@ -1610,6 +1641,10 @@ export const SimpleChartRecBox: FC<{ onInputFocus?: () => void }> = function ({ 
                 <RuntimePackageApprovalPanel
                     approval={runtimeApprovalProgress.approval}
                     status={runtimeApprovalProgress.status}
+                    error={runtimeApprovalProgress.error}
+                    errorCode={runtimeApprovalProgress.errorCode}
+                    source={runtimeApprovalProgress.source}
+                    versions={runtimeApprovalProgress.versions}
                     onApprove={() => undefined}
                     onReject={() => undefined}
                     onCancel={cancelAgent}

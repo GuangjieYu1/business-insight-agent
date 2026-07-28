@@ -557,6 +557,7 @@ def data_agent_streaming():
                     )
                     event = {
                         "type": "approval_required",
+                        "kind": approval.kind,
                         "iteration": 0,
                         "tool": "runtime_package_request",
                         "approval": approval.public_payload(),
@@ -574,6 +575,7 @@ def data_agent_streaming():
                 from data_formulator.sandbox.runtime_packages import (
                     approval_status_event,
                     consume_runtime_package_approval,
+                    create_followup_runtime_package_approval,
                     install_runtime_packages,
                 )
 
@@ -589,7 +591,7 @@ def data_agent_streaming():
                     )
                 except Exception as exc:
                     yield json.dumps(
-                        approval_status_event(approval_id, "failed", error=str(exc)),
+                        approval_status_event(approval_id, "failed", error=str(exc), error_code="unknown_install_error"),
                         ensure_ascii=False,
                     ) + '\n'
                     return
@@ -612,22 +614,47 @@ def data_agent_streaming():
                         "such as pandas, numpy, scipy, and sklearn, or explain the limitation."
                     )
                 else:
-                    yield json.dumps(
-                        approval_status_event(
-                            approval.id,
-                            "installing",
-                            packages=[{"package": pkg} for pkg in approval.packages],
-                        ),
-                        ensure_ascii=False,
-                    ) + '\n'
                     install_result = install_runtime_packages(
                         packages=approval.packages,
                         import_names=approval.import_names,
+                        allow_official=approval.kind == "official_pypi_fallback",
                     )
+                    for progress_event in install_result.progress_events:
+                        yield json.dumps(
+                            approval_status_event(
+                                approval.id,
+                                str(progress_event.get("status") or "installing"),
+                                packages=progress_event.get("packages"),
+                                source=progress_event.get("source"),
+                            ),
+                            ensure_ascii=False,
+                        ) + '\n'
                     yield json.dumps(
                         install_result.public_payload(approval.id),
                         ensure_ascii=False,
                     ) + '\n'
+                    if install_result.status == "awaiting_official_approval":
+                        followup = create_followup_runtime_package_approval(
+                            approval,
+                            kind="official_pypi_fallback",
+                            preceding_error=install_result.error_message,
+                        )
+                        event = {
+                            "type": "approval_required",
+                            "kind": followup.kind,
+                            "iteration": 0,
+                            "tool": "runtime_package_request",
+                            "approval": followup.public_payload(),
+                            "packages": followup.packages,
+                            "missing_imports": followup.import_names,
+                            "trajectory": followup.trajectory,
+                            "completed_step_count": followup.completed_step_count,
+                            "message": "The configured domestic Python package mirrors are unavailable. Official PyPI requires a separate approval.",
+                            "message_code": "agent.runtimePackageOfficialApprovalRequired",
+                        }
+                        ledger = _call_data_agent_ledger(ledger, "observe", event)
+                        yield json.dumps(event, ensure_ascii=False) + "\n"
+                        return
                     if install_result.ok:
                         try:
                             from data_formulator.sandbox.local_sandbox import retire_runtime_package_workers

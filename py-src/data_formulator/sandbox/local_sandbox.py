@@ -23,6 +23,7 @@ from data_formulator.sandbox.runtime_packages import (
     detect_missing_runtime_packages,
     ensure_runtime_package_path,
     manifest_import_names,
+    runtime_bundle_paths,
     missing_payload,
     missing_runtime_packages_from_error,
     runtime_install_enabled,
@@ -70,8 +71,10 @@ def _warm_worker_loop(conn):
     import sys as _sys
     try:
         _runtime_package_dir = ensure_runtime_package_path()
+        _runtime_package_paths = runtime_bundle_paths()
     except Exception:
         _runtime_package_dir = None
+        _runtime_package_paths = []
 
     # Build a set of directories that should always be readable
     # (Python stdlib, site-packages, etc.) so that library imports
@@ -85,6 +88,7 @@ def _warm_worker_loop(conn):
         _sysconfig.get_path("purelib"),
         _sysconfig.get_path("platlib"),
         str(_runtime_package_dir) if _runtime_package_dir else None,
+        *_runtime_package_paths,
     ):
         if _p:
             _rp = os.path.realpath(_p)
@@ -264,78 +268,98 @@ def _warm_worker_loop(conn):
 
 
 class _WarmWorkerPool:
-    """Pool of persistent child processes with pre-imported libraries.
-
-    Workers are forked once and reuse the same process for multiple
-    calls, avoiding the ~600ms pandas/numpy import overhead each time.
-    A simple LIFO stack ensures thread-safe checkout/return.
-    """
+    """Pool of persistent child processes with pre-imported libraries."""
 
     def __init__(self, size: int = 2):
         self._size = size
         self._lock = threading.Lock()
         self._available: list[tuple[Process, object]] = []
         self._all: list[tuple[Process, object]] = []
+        self._worker_generation: dict[int, int] = {}
+        self._generation = 0
         self._closed = False
         atexit.register(self.shutdown)
+
+    @staticmethod
+    def _key(conn) -> int:
+        return id(conn)
 
     def _spawn(self) -> tuple[Process, object]:
         parent_conn, child_conn = Pipe()
         p = Process(target=_warm_worker_loop, args=(child_conn,), daemon=True)
         p.start()
-        return p, parent_conn
+        pair = (p, parent_conn)
+        self._worker_generation[self._key(parent_conn)] = self._generation
+        return pair
 
     def acquire(self) -> tuple[Process, object]:
         """Get a warm worker (process, conn). Spawns one if needed."""
         with self._lock:
             while self._available:
                 proc, conn = self._available.pop()
-                if proc.is_alive():
+                if proc.is_alive() and self._worker_generation.get(self._key(conn)) == self._generation:
                     return proc, conn
-                # Dead worker -- discard and try next
-            # No available workers -- spawn a new one (up to pool size is advisory)
+                self._forget_locked(proc, conn)
+                self._terminate_pair(proc, conn)
             pair = self._spawn()
             self._all.append(pair)
             return pair
 
     def release(self, proc: Process, conn) -> None:
-        """Return a worker to the pool for reuse."""
+        """Return a worker to the pool for reuse, unless a newer generation exists."""
+        should_discard = False
         with self._lock:
-            if not self._closed and proc.is_alive():
+            if self._closed or not proc.is_alive():
+                self._forget_locked(proc, conn)
+                should_discard = True
+            elif self._worker_generation.get(self._key(conn)) != self._generation:
+                self._forget_locked(proc, conn)
+                should_discard = True
+            else:
                 self._available.append((proc, conn))
+        if should_discard:
+            self._terminate_pair(proc, conn)
 
     def discard(self, proc: Process, conn) -> None:
         """Discard a broken worker (don't put it back)."""
+        with self._lock:
+            self._forget_locked(proc, conn)
+        self._terminate_pair(proc, conn)
+
+    def retire_idle(self) -> None:
+        """Advance generation and terminate idle workers after package install."""
+        with self._lock:
+            self._generation += 1
+            idle_workers = list(self._available)
+            self._available.clear()
+            for proc, conn in idle_workers:
+                self._forget_locked(proc, conn)
+
+        for proc, conn in idle_workers:
+            self._terminate_pair(proc, conn, graceful=True)
+
+    def _forget_locked(self, proc: Process, conn) -> None:
+        pair = (proc, conn)
+        self._all = [existing for existing in self._all if existing != pair]
+        self._available = [existing for existing in self._available if existing != pair]
+        self._worker_generation.pop(self._key(conn), None)
+
+    @staticmethod
+    def _terminate_pair(proc: Process, conn, *, graceful: bool = False) -> None:
         try:
             conn.send(None)
         except Exception:
             pass
-        try:
-            proc.terminate()
-        except Exception:
-            pass
-
-    def retire_idle(self) -> None:
-        """Terminate idle workers so future tasks spawn with fresh imports."""
-        with self._lock:
-            idle_workers = list(self._available)
-            self._available.clear()
-            self._all = [pair for pair in self._all if pair not in idle_workers]
-
-        for proc, conn in idle_workers:
-            try:
-                conn.send(None)
-            except Exception:
-                pass
+        if graceful:
             try:
                 proc.join(timeout=2)
             except Exception:
                 pass
-            if proc.is_alive():
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
+        if proc.is_alive():
+            try:
+                proc.terminate()
+            except Exception:
+                pass
 
     def shutdown(self) -> None:
         with self._lock:
@@ -343,19 +367,10 @@ class _WarmWorkerPool:
             all_workers = list(self._all)
             self._available.clear()
             self._all.clear()
+            self._worker_generation.clear()
 
         for proc, conn in all_workers:
-            try:
-                conn.send(None)
-            except Exception:
-                pass
-            try:
-                proc.join(timeout=2)
-            except Exception:
-                pass
-            if proc.is_alive():
-                proc.terminate()
-
+            self._terminate_pair(proc, conn, graceful=True)
 
 # Module-level pool -- shared by all LocalSandbox instances using subprocess mode.
 _worker_pool = _WarmWorkerPool(size=2)

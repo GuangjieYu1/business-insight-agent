@@ -80,14 +80,34 @@ export interface InteractionEntry {
 }
 
 
+export type RuntimePackageApprovalKind = 'python_package_install' | 'official_pypi_fallback';
+
+export interface RuntimePackageSource {
+    id: string;
+    label: string;
+    domain?: string;
+}
+
+export type RuntimePackageApprovalStatus =
+    | 'pending'
+    | 'installing'
+    | 'retrying_secondary'
+    | 'awaiting_official_approval'
+    | 'installed'
+    | 'rejected'
+    | 'failed';
+
 export interface RuntimePackageApproval {
     id: string;
+    kind?: RuntimePackageApprovalKind;
     packages: string[];
     importNames?: string[];
     expiresAt?: string;
     source?: string;
+    sources?: RuntimePackageSource[];
     installTarget?: string;
     risk?: string;
+    precedingError?: string;
 }
 
 export type DeriveStatus = 'running' | 'clarifying' | 'completed' | 'error' | 'interrupted';
